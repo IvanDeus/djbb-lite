@@ -1,4 +1,4 @@
-# Django Bulletin Board
+# DJBB-lite: Django Bulletin Board
 
 A deliberately small bulletin board built with Django — read it as a working reference for
 models, class-less function views, `ModelForm`s, and session auth, with nothing extra in the way.
