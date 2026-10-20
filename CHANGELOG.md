@@ -44,8 +44,6 @@ Initial working release: a complete, minimal bulletin board running on Django 6.
   `Comment` inlined; standalone `CommentAdmin` too.
 - **Base template with inline CSS** — header, navigation, and authenticated-user strip. No static
   assets, no CSS framework.
-- **Test accounts** — `admin` (staff, `vpn123`) and `kay` (regular, `zxc123`), seeded directly via
-  `create_user` / `create_superuser` so the short passwords bypass the interactive validators.
 - **`README.md`** — setup, routes, permissions model, and project layout.
 
 ### Changed
@@ -69,9 +67,9 @@ Behaviour was checked against a live server over HTTP, not just by reading the c
 
 - Anonymous `GET /` → 200; anonymous `GET /post/new/` → 302 to the login page.
 - Correct credentials log in; a wrong password re-renders the form with an error and no session.
-- `kay` created a post, added a comment, and edited their own post.
+- `user` created a post, added a comment, and edited their own post.
 - A spoofed `author=` field in the comment POST was ignored — the comment stayed attributed to
   the logged-in user.
-- `admin` saw edit/delete links on `kay`'s post and could reach `/admin/`; `kay` could not.
-- `kay` requesting edit or delete on an admin-owned post was redirected away.
+- `admin` saw edit/delete links on `user`'s post and could reach `/admin/`; `user` could not.
+- `user` requesting edit or delete on an admin-owned post was redirected away.
 - `admin` deleting a post removed it, and the detail page then returned 404.
