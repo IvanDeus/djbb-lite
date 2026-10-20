@@ -272,7 +272,6 @@ Deliberately left out to keep the project readable:
 - `requirements.txt`, Docker, CI.
 - Any rate limiting or spam control on comments.
 
-## License
+---
 
-No license file is present; all rights are reserved to the author by default. Add a `LICENSE`
-before distributing.
+2026 [ ivan deus ]
