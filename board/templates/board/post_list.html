@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  {% for post in posts %}
+    <article class="post">
+      <h2><a href="{% url 'post_detail' post.pk %}">{{ post.title }}</a></h2>
+      <p class="meta">{{ post.author.username }} &middot; {{ post.created_at|date:"Y-m-d H:i" }} &middot; {{ post.comments.count }} comment{{ post.comments.count|pluralize }}</p>
+      <p class="body">{{ post.body|truncatechars:240 }}</p>
+    </article>
+  {% empty %}
+    <p>Nothing on the board yet. <a href="{% url 'post_create' %}">Post something</a>.</p>
+  {% endfor %}
+{% endblock %}
