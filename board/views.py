@@ -1,8 +1,10 @@
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth import authenticate, login
+from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
-from .forms import CommentForm, PostForm
+from .forms import CommentForm, PostForm, RegistrationForm
 from .models import Post
 
 
@@ -66,3 +68,22 @@ def post_delete(request, pk):
         post.delete()
         return redirect(reverse('post_list'))
     return render(request, 'board/post_confirm_delete.html', {'post': post})
+
+
+def signup(request):
+    if request.method == 'POST':
+        form = RegistrationForm(request.POST)
+        if form.is_valid():
+            username = form.cleaned_data['username']
+            email = form.cleaned_data['email']
+            password = form.cleaned_data['password']
+            
+            user = User.objects.create_user(username=username, email=email, password=password)
+            user.save()
+            
+            authenticated_user = authenticate(username=username, password=password)
+            login(request, authenticated_user)
+            return redirect('post_list')
+    else:
+        form = RegistrationForm()
+    return render(request, 'registration/signup.html', {'form': form})

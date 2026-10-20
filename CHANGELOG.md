@@ -9,6 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Signup view** — new user registration at `/signup/` with username, email (no confirmation needed), and password fields (min 6 chars). Auto-log in after successful registration. `RegistrationForm` validates uniqueness of usernames.
 - **Production run guide** — a "Running in production" section in `README.md` covering the
   `config/settings_prod.py` overlay pattern, uvicorn against `config.asgi:application`, static
   files, SQLite backups, retiring the seeded accounts, systemd, nginx, and `check --deploy`.

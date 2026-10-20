@@ -16,6 +16,7 @@ Django's own auth are the whole stack.
 - **Staff override** — staff users can edit or delete *anyone's* post.
 - **Django admin** — posts and comments are registered and manageable at `/admin/`.
 - **Anonymous read access** — browsing needs no account; writing does.
+- **Self-registration** — new users can sign up with username, email, and password (min 6 chars).
 
 ## Requirements
 
@@ -68,6 +69,7 @@ somewhere reachable from the internet.
 | `GET/POST` | `/post/<pk>/edit/`       | `post_update`    | Author or staff                    |
 | `GET/POST` | `/post/<pk>/delete/`     | `post_delete`    | Author or staff                    |
 | `GET/POST` | `/login/`                | Django `LoginView` |                                   |
+| `GET/POST` | `/signup/`               | `signup`         | New user registration              |
 | `POST`     | `/logout/`               | Django `LogoutView` | POST only, as of Django 5        |
 | `*`        | `/admin/`                | Django admin     | Staff only                         |
 
@@ -88,14 +90,14 @@ delete URLs do not leak which post IDs exist versus which are simply yours.
 ```
 .
 ├── board/
-│   ├── forms.py                      # PostForm, CommentForm
+│   ├── forms.py                      # PostForm, CommentForm, RegistrationForm
 │   ├── models.py                     # Post, Comment
-│   ├── views.py                      # list, detail, create, update, delete
+│   ├── views.py                      # list, detail, create, update, delete, signup
 │   ├── admin.py
 │   └── templates/
 │       ├── base.html                 # header, nav, inline CSS
 │       ├── board/                    # post_list, post_detail, post_form, post_confirm_delete
-│       └── registration/login.html
+│       └── registration/             # login.html, signup.html
 ├── config/
 │   ├── settings.py                   # SQLite, board app, login redirects
 │   └── urls.py
@@ -205,8 +207,7 @@ python manage.py shell -c "from django.contrib.auth.models import User; User.obj
 python manage.py createsuperuser          # strong password; passes the validators this time
 ```
 
-There is no signup view and no `Register` route, so accounts you create are the only way to
-write. That is the real access control here — protect `/admin/` and those credentials.
+There is a signup view and `Register` route for new user registration, which auto-logs users in after successful signup. That is the real access control here — protect `/admin/` and those credentials.
 
 ### 6. Supervise the process
 
