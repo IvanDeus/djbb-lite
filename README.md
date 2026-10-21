@@ -1,8 +1,6 @@
 # DJBB-lite: Django Bulletin Board
 
-A deliberately small bulletin board built with Django — read it as a working reference for
-models, class-less function views, `ModelForm`s, and session auth, with nothing extra in the way.
-
+A deliberately small bulletin board built with Django.
 There is no Bootstrap, no DRF, no Celery. Supports Neon Postgres 18 or SQLite (fallback).
 
 ![Python](https://img.shields.io/badge/python-3.12-blue) ![Django](https://img.shields.io/badge/django-6.1-green)
@@ -63,18 +61,16 @@ a headless server / VDS — `neon login` just times out there. Fetch the connect
 the web console instead:
 
 1. Sign in at <https://console.neon.tech>.
-2. Open your **project** (e.g. `green-boat-82574724`) → the **Connection Details** panel on the
+2. Open your **project** → the **Connection Details** panel on the
    project dashboard — this is the "Connect" flow.
-3. Pick the **branch** (production) and copy the **pooled** connection string (the endpoint
-   ending in `-pooler…` — right choice for serverless/app hosting; use the direct one only if
-   you manage your own connection pooling).
+3. Pick the **branch** (production) and copy the **pooled** connection string.
 4. Paste it into `.env.local` as `DATABASE_URL=`. The console URI already carries
    `?sslmode=require`; append `&channel_binding=require` for SCRAM channel binding.
 
 If you need CLI/agent access on such a host later, skip browser login and use an API key
 (`neon projects list --api-key "$KEY"` or `NEON_API_KEY` in the environment) instead.
 
-#### Deploying the schema to Neon
+#### Deploying the schema to DB
 
 The schema is applied with Django's standard migrations — there is no separate schema file to
 push. The ordered pass from an empty project to a running board is
@@ -318,8 +314,7 @@ Neon holds the database; the Django process runs wherever you put it, and that h
 
 ### 1. Link the project, apply the policy
 
-Create the project in the console (<https://console.neon.tech>) and note the organization ID
-(`org-…`) and the project ID (`green-boat-82574724` and friends). From the repository root:
+Create the project in the console (<https://console.neon.tech>) and note the organization ID and the project ID. From the repository root:
 
 ```bash
 npm install                                                     # @neon/config, @neon/env
@@ -364,7 +359,7 @@ that host is refused and the failure looks like a timeout rather than a wrong pa
 ```bash
 pip install -r requirements.txt
 
-python manage.py migrate       # the 13 tables: auth_*, board_*, django_*
+python manage.py migrate       # tables: auth_*, board_*, django_*
 python manage.py check         # same check `npm run build` runs
 ```
 
@@ -529,7 +524,7 @@ After=network.target
 User=djbb
 WorkingDirectory=/srv/djbb
 Environment=DJANGO_SETTINGS_MODULE=config.settings_prod
-EnvironmentFile=/etc/djbb/env              # SECRET_KEY=…, DATABASE_URL=… (0600, service user only)
+EnvironmentFile=/etc/djbb/env              # SECRET_KEY=…, DATABASE_URL=… (0600)
 ExecStart=/srv/djbb/.venv/bin/uvicorn config.asgi:application --host 127.0.0.1 --port 7111
 Restart=always
 
