@@ -2,12 +2,14 @@ import io
 import re
 import shutil
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from . import avatars
@@ -185,6 +187,15 @@ class ProfilePageTests(AvatarTestCase):
         response = self.client.get(reverse('profile'))
 
         self.assertContains(response, f'value="{self.user.profile.avatar}" checked')
+
+    def test_the_page_shows_the_current_avatar_at_its_full_size(self):
+        response = self.client.get(reverse('profile'))
+
+        self.assertContains(
+            response,
+            f'<img class="avatar-full" src="{self.user.profile.avatar_url}" '
+            f'alt="{self.user.username}&#39;s avatar" width="100" height="100">',
+        )
 
     def test_the_page_leaves_the_choice_open_and_admits_an_upload_holds_it_back(self):
         self.user.profile.set_avatar('fem-a1.png', self.image())
@@ -425,6 +436,71 @@ class MemberPageTests(TestCase):
 
     def test_a_name_that_is_not_on_the_board_is_not_found(self):
         self.assertEqual(self.client.get('/user/herbert-never-wrote/').status_code, 404)
+
+
+class MemberListTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='admin', password='zxc123', is_staff=True)
+        self.writer = User.objects.create_user(username='donne', password='zxc123')
+        self.lurker = User.objects.create_user(username='herbert', password='zxc123')
+        self.client.force_login(self.owner)
+
+    def names(self):
+        """The rows in the order they came out. Only a name cell opens its link right after the
+        <td>, so the avatar cells - which spread over four source lines - stay out of this."""
+        source = ' '.join(self.client.get(reverse('member_list')).content.decode().split())
+
+        return re.findall(r'<td><a href="/user/([^/"]+)/">', source)
+
+    def test_every_writer_is_listed_with_a_face_a_name_and_a_type(self):
+        response = self.client.get(reverse('member_list'))
+
+        self.assertContains(response, '<th>Avatar</th><th>Name</th><th>Type</th>')
+        self.assertContains(response, '<td><a href="/user/donne/">donne</a></td>')
+        self.assertContains(response, f'src="{self.writer.profile.avatar_url}" alt="" width="48" height="48"')
+        self.assertContains(response, '<td>member</td>')
+        self.assertContains(response, '<td>admin</td>')
+
+    def test_the_list_runs_from_the_most_recent_activity(self):
+        post = self.writer.post_set.create(title='Holy Sonnets', body='Death, be not proud.')
+        post.comments.create(author=self.lurker, body='And yet.')
+
+        # The reply is the newest act on the board, then the post it answered, then the day the
+        # admin joined - all they have done here.
+        self.assertEqual(self.names(), ['herbert', 'donne', 'admin'])
+
+    def test_a_writer_who_never_wrote_is_placed_by_their_joining(self):
+        self.writer.post_set.create(title='Holy Sonnets', body='Death, be not proud.')
+        User.objects.filter(pk=self.owner.pk).update(date_joined=timezone.now() + timedelta(days=1))
+
+        self.assertEqual(self.names(), ['admin', 'donne', 'herbert'])
+
+    def test_a_writer_is_refused(self):
+        self.client.force_login(self.writer)
+
+        self.assertEqual(self.client.get(reverse('member_list')).status_code, 403)
+
+    def test_a_guest_is_asked_to_log_in(self):
+        self.client.logout()
+
+        response = self.client.get(reverse('member_list'))
+
+        self.assertRedirects(response, f'{reverse("login")}?next={reverse("member_list")}')
+
+    def panel(self):
+        source = ' '.join(self.client.get(reverse('post_list')).content.decode().split())
+
+        return re.search(r'<p class="stats">(.*?)</p>', source).group(1)
+
+    def test_the_users_figure_links_here_for_staff(self):
+        self.assertIn(f'<a href="{reverse("member_list")}">', self.panel())
+
+    def test_the_users_figure_stays_plain_text_for_everyone_else(self):
+        self.client.force_login(self.writer)
+        self.assertNotIn('<a', self.panel())
+
+        self.client.logout()
+        self.assertNotIn('<a', self.panel())
 
 
 class FooterStatsTests(TestCase):

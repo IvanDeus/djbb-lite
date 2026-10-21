@@ -9,6 +9,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A members list, sorted by last activity** — `/members/` is one plain table of every writer:
+  avatar, name, and type (`admin` or `member`), the most recent activity at the top. `member_list`
+  annotates `last_activity` with
+  `Coalesce(Greatest(Max('post__created_at'), Max('comment__created_at')), F('date_joined'))`, so a
+  writer is placed by their newest post or newest reply, and someone who has never written at all by
+  the day they joined. The page is staff-only and the refusal is split the way the admin's
+  is: `login_required` sends a guest to `/login/?next=/members/`, and a writer who is not staff is
+  met with `raise PermissionDenied` inside the view — Django 6's `user_passes_test` has no
+  `raise_exception` argument any more, so on its own it would only ever redirect. The only way in is
+  the users figure in the footer panel, which becomes a link for `user.is_staff` and stays plain
+  text for everybody else. `base.html` gained the `table` and `th, td` rules the board had no use
+  for until this page.
+- **The profile page shows the current avatar at its full size** — the signed-in user's own picture
+  on `/profile/` was the 24×24 header size, sitting inline before their name. It is now the 100×100
+  the file actually is, in the `avatar-full` circle the member page already used, with
+  `username · e-mail` moved to its own line underneath.
 - **Board counts in the footer** — a small bordered panel above the credit line on every page:
   `5 users · 8 comments · 20 topics`. A topic is a post, since this board has no separate
   thread or category model, so the three figures are members, replies and topics.

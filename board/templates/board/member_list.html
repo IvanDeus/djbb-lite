@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+
+{% block title %}Members{% endblock %}
+
+{% block content %}
+  <h2>Members</h2>
+
+  <table>
+    <tr><th>Avatar</th><th>Name</th><th>Type</th></tr>
+    {% for person in people %}
+      <tr>
+        <td>
+          <a href="{% url 'user_detail' person.username %}">
+            <img class="avatar-full" src="{{ person.profile.avatar_url }}" alt="" width="48" height="48">
+          </a>
+        </td>
+        <td><a href="{% url 'user_detail' person.username %}">{{ person.username }}</a></td>
+        <td>{{ person.is_staff|yesno:"admin,member" }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endblock %}

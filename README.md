@@ -19,13 +19,16 @@ There is no Bootstrap, no DRF, no Celery. Supports Neon Postgres 18 or SQLite (f
 - **Anonymous read access** — browsing needs no account; writing does.
 - **Self-registration** — new users can sign up with username, email, and password (min 6 chars).
 - **Avatars** — every user carries one: pick from four presets, or upload a picture that is
-  centre-cropped to 100×100. `/profile/` changes it later.
+  centre-cropped to 100×100. `/profile/` changes it later and shows the current one at that size.
 - **Change password** — `/profile/` takes a new password too, against the current one, and keeps you
   signed in across the change instead of bouncing you back to the login form.
 - **A 404 that knows where it is** — a post id with nothing behind it renders the board's own page
   and carries the visitor back to the index two seconds later.
 - **A page per member** — every avatar on the board links to `/user/<name>/`, which shows the
   picture at its full 100×100. The e-mail address on that page is visible to staff only.
+- **A members list** — `/members/` is a table of every writer — face, name, and whether they are an
+  admin or a member — with whoever wrote most recently at the top. Staff only, and the users figure
+  in the footer is the only way there.
 - **Footer counts** — a small panel above the credit line on every page, holding three numbers:
   members, replies, and topics. A topic is a post here.
 
@@ -113,6 +116,36 @@ itself only holds the avatar string; name and e-mail are methods reading through
 Django's own user admin is left alone: accounts, e-mail and passwords are still edited there, and
 this page exists only for looking.
 
+### Who is on the board
+
+`/members/` is the roll-call — one row per writer, holding their face, their name, and whether they
+are an `admin` or a `member` — with whoever did something most recently at the top.
+
+The ordering is one annotation:
+
+```python
+last_activity = Coalesce(
+    Greatest(Max('post__created_at'), Max('comment__created_at')),
+    F('date_joined'),
+)
+```
+
+so a writer is placed by their newest post or their newest reply, and someone who has never written
+at all by the day they joined. The join date sits in the `Coalesce` rather than as a third argument
+to `Greatest` on purpose: `Greatest` ignores NULLs and returns the largest value it is given, so
+folding the signup day in would make every account at least as recent as itself, and a writer whose
+only topic is a year old would never fall below someone who joined last week.
+
+Staff only, with the two refusals split the way the admin splits them: `login_required` sends a
+guest to `/login/?next=/members/`, and a writer who is not staff gets a `403` from a
+`raise PermissionDenied` in the view. That raise is written out because Django 6's
+`user_passes_test` no longer takes `raise_exception` — on its own it redirects, which would tell a
+logged-in writer to log in again.
+
+The only link to it is the users figure in the footer panel, and `partials/stats.html` wraps that in
+an `<a>` only when `user.is_staff`. Guests and plain writers see exactly the panel they saw before.
+`base.html` carries `table` and `th, td` rules now, which no page on the board needed until this one.
+
 ### Changing a password
 
 `/profile/` carries two forms, and the button that came back picks which one is bound:
@@ -196,6 +229,7 @@ this instance somewhere reachable from the internet.
 | `GET/POST` | `/post/<pk>/edit/`       | `post_update`    | Author or staff                    |
 | `GET/POST` | `/post/<pk>/delete/`     | `post_delete`    | Author or staff                    |
 | `GET`      | `/user/<username>/`      | `user_detail`    | Public; e-mail only for staff      |
+| `GET`      | `/members/`              | `member_list`    | Staff only; linked from the footer |
 | `GET/POST` | `/login/`                | Django `LoginView` |                                   |
 | `GET/POST` | `/signup/`               | `signup`         | New user registration              |
 | `GET/POST` | `/profile/`              | `profile`        | Login required; avatar and password |
@@ -216,7 +250,9 @@ delete URLs do not leak which post IDs exist versus which are simply yours.
 
 Two smaller rules sit beside it: `/user/<name>/` prints the e-mail line only for
 `request.user.is_staff`, and `ProfileAdmin` in `board/admin.py` refuses add, change and delete, so
-the profiles section is a window rather than a door.
+the profiles section is a window rather than a door. A third keeps `/members/` behind staff: a guest
+is redirected to the login page, a writer who is not staff is refused with `403`, and the footer
+figure that links there is rendered as a link for staff alone.
 
 ## Project layout
 
@@ -228,16 +264,17 @@ the profiles section is a window rather than a door.
 │   ├── models.py                     # Post, Comment, Profile
 │   ├── signals.py                    # every new user gets a profile row
 │   ├── context_processors.py         # the footer's three counts, on every page
-│   ├── views.py                      # list, detail, member, create, update, delete, signup, profile
+│   ├── views.py                      # list, detail, member, members, create, update, delete, signup, profile
 │   ├── admin.py                      # posts, comments, and read-only profiles
 │   ├── management/commands/seed_board.py
 │   ├── templatetags/avatars.py       # {{ stored_value|avatar_url }}
-│   ├── tests.py                      # the avatar rules, end to end
+│   ├── tests.py                      # the board's rules, end to end: avatars, posts, auth,
+│   │                                 #   profiles, passwords, the footer, the members list
 │   ├── static/avatars/               # four committed presets + uploads/ (gitignored)
 │   └── templates/
 │       ├── base.html                 # header, nav, footer, inline CSS
 │       ├── board/                    # post_list, post_detail, post_form, post_confirm_delete,
-│       │                             #   post_missing, profile, user_detail
+│       │                             #   post_missing, profile, user_detail, member_list
 │       ├── partials/                 # avatar_picker.html, stats.html
 │       └── registration/             # login.html, signup.html
 ├── config/
@@ -543,8 +580,9 @@ configured.
 
 Deliberately left out to keep the project readable:
 
-- Tests — `board/tests.py` covers the avatar rules (presets, cropping, the shapes a row may hold,
-  what may be deleted); nothing else is tested.
+- Full test coverage — `board/tests.py` exercises the flows this board has (avatars, posts and
+  comments, signup and login, profile editing, password changes, the footer counts, the members
+  list), not every branch of the Django forms and views those pages sit on.
 - Pagination, post editing history, nested replies, markdown, attachments.
 - Docker, CI.
 - Any rate limiting or spam control on comments.

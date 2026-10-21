@@ -5,9 +5,10 @@
 {% block content %}
   <h2>Profile</h2>
 
-  <p class="meta">
-    <img class="avatar" src="{{ profile.avatar_url }}" alt="" width="24" height="24">{{ user.username }} &middot; {{ user.email }}
+  <p>
+    <img class="avatar-full" src="{{ profile.avatar_url }}" alt="{{ user.username }}&#39;s avatar" width="100" height="100">
   </p>
+  <p class="meta">{{ user.username }} &middot; {{ user.email }}</p>
 
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}

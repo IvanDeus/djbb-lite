@@ -2,6 +2,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login, update_session_auth_hash
 from django.contrib.auth.models import User
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
+from django.db.models import DateTimeField, F, Max
+from django.db.models.functions import Coalesce, Greatest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
@@ -56,6 +59,33 @@ def user_detail(request, username):
         'board/user_detail.html',
         {'person': person, 'show_email': request.user.is_staff},
     )
+
+
+@login_required
+def member_list(request):
+    """The board's people, the one who wrote most recently first.
+
+    Staff only, and the refusal is split the way the board's admin splits it: `login_required`
+    sends a guest to the login page, and a writer who is not staff gets a 403 for having already
+    logged in. Someone who never wrote is placed by the day they joined, so the ordering has no
+    hole in it.
+    """
+    if not request.user.is_staff:
+        raise PermissionDenied
+
+    people = (
+        User.objects.select_related('profile')
+        .annotate(
+            last_activity=Coalesce(
+                Greatest(Max('post__created_at'), Max('comment__created_at')),
+                F('date_joined'),
+                output_field=DateTimeField(),
+            )
+        )
+        .order_by('-last_activity')
+    )
+
+    return render(request, 'board/member_list.html', {'people': people})
 
 
 @login_required

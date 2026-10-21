@@ -1,5 +1,6 @@
 <p class="stats">
-  {{ stats.users }} user{{ stats.users|pluralize }} &middot;
+  {# The member roll-call is staff's to read, so only their footer carries the link. #}
+  {% if user.is_staff %}<a href="{% url 'member_list' %}">{{ stats.users }} user{{ stats.users|pluralize }}</a>{% else %}{{ stats.users }} user{{ stats.users|pluralize }}{% endif %} &middot;
   {{ stats.comments }} comment{{ stats.comments|pluralize }} &middot;
   {{ stats.topics }} topic{{ stats.topics|pluralize }}
 </p>
