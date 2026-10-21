@@ -1,7 +1,45 @@
 from django import forms
 from django.contrib.auth.models import User
 
+from . import avatars
 from .models import Comment, Post
+
+
+def avatar_preset_field(required):
+    """Only the four committed basenames are accepted, so no path shape can be stored at all."""
+    return forms.ChoiceField(
+        label='Avatar',
+        required=required,
+        choices=[(preset, preset) for preset in avatars.AVATAR_PRESETS],
+    )
+
+
+class AvatarFileField(forms.FileField):
+    """Sniffed, cropped and re-encoded during validation, so the store only ever writes bytes that
+    decoded and a corrupt file cannot leave a row pointing at an avatar that does not exist.
+
+    The preset and the file are separate keys on purpose: `avatar` is the only thing that reaches
+    the database.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('required', False)
+        kwargs.setdefault('widget', forms.FileInput(attrs={
+            'class': 'field',
+            'accept': 'image/jpeg,image/png,image/webp',
+        }))
+        super().__init__(**kwargs)
+
+    def clean(self, data, initial=None):
+        upload = super().clean(data, initial)
+        if upload is None:
+            return None
+        if upload.size > avatars.MAX_UPLOAD_BYTES:
+            raise forms.ValidationError('This picture is larger than 2 MB.')
+        try:
+            return avatars.normalize(upload)
+        except avatars.AvatarError as error:
+            raise forms.ValidationError(str(error)) from error
 
 
 class PostForm(forms.ModelForm):
@@ -25,6 +63,8 @@ class CommentForm(forms.ModelForm):
 
 class RegistrationForm(forms.ModelForm):
     password = forms.CharField(widget=forms.PasswordInput(attrs={'class': 'field', 'placeholder': 'Password (min 6 chars)'}))
+    avatar = avatar_preset_field(required=True)
+    avatar_file = AvatarFileField()
 
     class Meta:
         model = User
@@ -45,3 +85,11 @@ class RegistrationForm(forms.ModelForm):
         if User.objects.filter(username__iexact=username).exists():
             raise forms.ValidationError('This username is already taken.')
         return username
+
+
+class ProfileForm(forms.Form):
+    """Leaving both fields empty keeps the avatar already on the row, which is the only way to hold
+    on to an uploaded one: the whitelist accepts preset names alone."""
+
+    avatar = avatar_preset_field(required=False)
+    avatar_file = AvatarFileField()

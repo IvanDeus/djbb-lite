@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}Profile{% endblock %}
+
+{% block content %}
+  <h2>Profile</h2>
+
+  <p class="meta">
+    <img class="avatar" src="{{ profile.avatar_url }}" alt="" width="24" height="24">{{ user.username }} &middot; {{ user.email }}
+  </p>
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% include 'partials/avatar_picker.html' %}
+    {% if profile.has_uploaded_avatar %}
+      <p class="meta">Your uploaded picture is kept unless you pick one of the four above.</p>
+    {% endif %}
+    <button type="submit">Save</button>
+  </form>
+{% endblock %}

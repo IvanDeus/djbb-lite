@@ -4,10 +4,21 @@
 
 {% block content %}
   <h2>Sign up</h2>
-  {% if form.errors %}<p class="errorlist">{{ form.errors }}</p>{% endif %}
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-    {{ form.as_p }}
+    <p>
+      {{ form.username }}
+      {% for error in form.username.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+    </p>
+    <p>
+      {{ form.email }}
+      {% for error in form.email.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+    </p>
+    <p>
+      {{ form.password }}
+      {% for error in form.password.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+    </p>
+    {% include 'partials/avatar_picker.html' %}
     <button type="submit">Sign up</button>
   </form>
 {% endblock %}

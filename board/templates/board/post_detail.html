@@ -5,7 +5,7 @@
 {% block content %}
   <article class="post">
     <h2>{{ post.title }}</h2>
-    <p class="meta">{{ post.author.username }} &middot; {{ post.created_at|date:"Y-m-d H:i" }}</p>
+    <p class="meta"><img class="avatar" src="{{ post.author.profile.avatar_url }}" alt="" width="24" height="24">{{ post.author.username }} &middot; {{ post.created_at|date:"Y-m-d H:i" }}</p>
     <p class="body">{{ post.body }}</p>
     {% if can_manage %}
       <div class="actions">
@@ -16,9 +16,9 @@
   </article>
 
   <h3>Comments</h3>
-  {% for comment in post.comments.all %}
+  {% for comment in comments %}
     <div class="comment">
-      <p class="meta">{{ comment.author.username }} &middot; {{ comment.created_at|date:"Y-m-d H:i" }}</p>
+      <p class="meta"><img class="avatar" src="{{ comment.author.profile.avatar_url }}" alt="" width="24" height="24">{{ comment.author.username }} &middot; {{ comment.created_at|date:"Y-m-d H:i" }}</p>
       <p class="body">{{ comment.body }}</p>
     </div>
   {% empty %}

@@ -4,7 +4,8 @@ from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
-from .forms import CommentForm, PostForm, RegistrationForm
+from . import avatars
+from .forms import CommentForm, PostForm, ProfileForm, RegistrationForm
 from .models import Post
 
 
@@ -13,12 +14,12 @@ def _can_manage(user, post):
 
 
 def post_list(request):
-    posts = Post.objects.select_related('author').order_by('-created_at')
+    posts = Post.objects.select_related('author__profile').order_by('-created_at')
     return render(request, 'board/post_list.html', {'posts': posts})
 
 
 def post_detail(request, pk):
-    post = get_object_or_404(Post.objects.select_related('author'), pk=pk)
+    post = get_object_or_404(Post.objects.select_related('author__profile'), pk=pk)
     if request.method == 'POST':
         form = CommentForm(request.POST)
         if form.is_valid():
@@ -32,7 +33,12 @@ def post_detail(request, pk):
     return render(
         request,
         'board/post_detail.html',
-        {'post': post, 'comment_form': form, 'can_manage': _can_manage(request.user, post)},
+        {
+            'post': post,
+            'comments': post.comments.select_related('author__profile'),
+            'comment_form': form,
+            'can_manage': _can_manage(request.user, post),
+        },
     )
 
 
@@ -71,19 +77,30 @@ def post_delete(request, pk):
 
 
 def signup(request):
-    if request.method == 'POST':
-        form = RegistrationForm(request.POST)
-        if form.is_valid():
-            username = form.cleaned_data['username']
-            email = form.cleaned_data['email']
-            password = form.cleaned_data['password']
-            
-            user = User.objects.create_user(username=username, email=email, password=password)
-            user.save()
-            
-            authenticated_user = authenticate(username=username, password=password)
-            login(request, authenticated_user)
-            return redirect('post_list')
-    else:
-        form = RegistrationForm()
-    return render(request, 'registration/signup.html', {'form': form})
+    form = RegistrationForm(request.POST or None, request.FILES or None)
+    if request.method == 'POST' and form.is_valid():
+        username = form.cleaned_data['username']
+        password = form.cleaned_data['password']
+
+        # The receiver in signals.py gives the new row the id % 4 preset, which the picked one
+        # replaces here - so the NOT NULL column is never left waiting on an upload.
+        user = User.objects.create_user(username=username, email=form.cleaned_data['email'], password=password)
+        user.profile.set_avatar(form.cleaned_data['avatar'], form.cleaned_data['avatar_file'])
+
+        login(request, authenticate(username=username, password=password))
+        return redirect('post_list')
+    return render(request, 'registration/signup.html', {'form': form, 'presets': avatars.AVATAR_PRESETS})
+
+
+@login_required
+def profile(request):
+    user_profile = request.user.profile
+    form = ProfileForm(request.POST or None, request.FILES or None, initial={'avatar': user_profile.picked_preset})
+    if request.method == 'POST' and form.is_valid():
+        user_profile.set_avatar(form.cleaned_data['avatar'] or user_profile.avatar, form.cleaned_data['avatar_file'])
+        return redirect('profile')
+    return render(
+        request,
+        'board/profile.html',
+        {'profile': user_profile, 'form': form, 'presets': avatars.AVATAR_PRESETS},
+    )

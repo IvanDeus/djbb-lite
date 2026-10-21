@@ -9,6 +9,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Avatars for every user** — the four 100×100 presets committed to `board/static/avatars` are the
+  floor: signup requires a pick, an upload submitted with it wins and is centre-cropped and
+  re-encoded by Pillow in its own container, and `/profile/` changes either later. Stored values are
+  kept to two shapes — a whitelisted preset basename or `uploads/{id}.{jpeg,png,webp}` — and that
+  regex is what gates deletion, so no row can ever name a traversal path or another user's file.
+  The column lives on `board.Profile`, because `auth.User` cannot take one without swapping
+  `AUTH_USER_MODEL`; it is `NOT NULL` behind a backfill that rotates the presets by `id % 4`, the
+  same rule `preset_for_id()` applies in the `post_save` receiver. Avatars render beside every
+  author on the board, in the header (which now links to `/profile/`) and in the admin's author
+  column. Pillow is a new requirement, and `seed_board` fills an empty database with four writers,
+  twenty notes on 17th-century poetry across three themes, and replies between them.
 - **Footer on every page** — "Designed and developed by Ivan Deus" with a link to
   `https://github.com/IvanDeus`, rendered in `base.html` below the content block.
 - **Signup view** — new user registration at `/signup/` with username, email (no confirmation needed), and password fields (min 6 chars). Auto-log in after successful registration. `RegistrationForm` validates uniqueness of usernames.

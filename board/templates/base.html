@@ -13,6 +13,11 @@
     .post, .comment { border: 1px solid rgba(128,128,128,.4); border-radius: .5rem; padding: .75rem 1rem; margin-bottom: .75rem; }
     .post h2, .comment h3 { margin: 0 0 .35rem; font-size: 1.05rem; }
     .meta { font-size: .8rem; opacity: .7; margin-bottom: .5rem; }
+    .avatar { width: 1.5rem; height: 1.5rem; border-radius: 50%; vertical-align: -.35rem; margin-right: .3rem; }
+    .avatar-picker { border: 0; padding: 0; margin: .35rem 0 .75rem; }
+    .avatars { display: flex; flex-wrap: wrap; gap: .75rem; margin: .35rem 0 .75rem; }
+    .avatars label { display: flex; flex-direction: column; align-items: center; gap: .2rem; font-size: .75rem; cursor: pointer; }
+    .avatars img { border: 1px solid rgba(128,128,128,.4); border-radius: 50%; }
     .body { white-space: pre-wrap; margin: 0 0 .5rem; }
     .field { display: block; width: 100%; box-sizing: border-box; font: inherit; padding: .5rem; margin: .35rem 0 .75rem; }
     .actions { display: flex; gap: .75rem; align-items: center; margin-top: .5rem; }
@@ -24,7 +29,7 @@
   <header>
     <h1><a href="{% url 'post_list' %}" style="color:inherit;text-decoration:none">Bulletin Board</a></h1>
     {% if user.is_authenticated %}
-      <span>hi, {{ user.username }}</span>
+      <span>hi, <a href="{% url 'profile' %}"><img class="avatar" src="{{ user.profile.avatar_url }}" alt="" width="24" height="24">{{ user.username }}</a></span>
       <a href="{% url 'post_create' %}">new post</a>
       <form method="post" action="{% url 'logout' %}" style="display:inline">
         {% csrf_token %}

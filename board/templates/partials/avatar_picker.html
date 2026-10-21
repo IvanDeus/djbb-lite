@@ -1,0 +1,17 @@
+{% load avatars %}
+<fieldset class="avatar-picker">
+  <legend>Avatar</legend>
+  {% for error in form.avatar.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+  <span class="avatars">
+    {% for preset in presets %}
+      <label>
+        <input type="radio" name="avatar" value="{{ preset }}" {% if form.avatar.value == preset %}checked{% endif %}>
+        <img src="{{ preset|avatar_url }}" alt="{{ preset }}" width="48" height="48">
+      </label>
+    {% endfor %}
+  </span>
+  {% for error in form.avatar_file.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+  <label for="{{ form.avatar_file.id_for_label }}">Or upload your own &mdash; JPG, PNG or WebP up to 2 MB, cropped to 100&times;100.
+    An upload replaces the picture picked above.</label>
+  {{ form.avatar_file }}
+</fieldset>

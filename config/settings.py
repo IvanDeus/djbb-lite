@@ -142,6 +142,11 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# The four committed presets live in the static tree, and user uploads are written next to them, so
+# one URL shape (/static/avatars/<stored value>) addresses both. Production has to serve this
+# folder - collectstatic copies it, but anything uploaded after that is not picked up again.
+AVATARS_ROOT = BASE_DIR / 'board' / 'static' / 'avatars'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOGIN_URL = 'login'
