@@ -9,6 +9,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Board counts in the footer** — a small bordered panel above the credit line on every page:
+  `5 users · 8 comments · 20 topics`. A topic is a post, since this board has no separate
+  thread or category model, so the three figures are members, replies and topics.
+  `board/context_processors.py:board_stats` puts them in the template context site-wide, which
+  keeps `base.html` honest without each view remembering to pass a count, and the numbers are
+  queried per request rather than cached: three indexed `COUNT`s on tables this small cost less
+  than anything that could go stale.
 - **A page per member** — `/user/<username>/` shows one writer's avatar at its full 100×100 beside
   their name, and every avatar on the board (post author, comment author, on the index and on a
   thread) now links to it. The e-mail line on that page renders only for `request.user.is_staff`,

@@ -1,4 +1,5 @@
 import io
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -424,6 +425,56 @@ class MemberPageTests(TestCase):
 
     def test_a_name_that_is_not_on_the_board_is_not_found(self):
         self.assertEqual(self.client.get('/user/herbert-never-wrote/').status_code, 404)
+
+
+class FooterStatsTests(TestCase):
+    def panel(self, url='/'):
+        """The footer paragraph with its source line breaks flattened: the template spreads the three
+        counts over three lines, and only the browser sees them as one."""
+        source = ' '.join(self.client.get(url).content.decode().split())
+        return re.search(r'<p class="stats">(.*?)</p>', source).group(1).strip()
+
+    def test_an_empty_board_reports_its_emptiness(self):
+        self.assertEqual(self.panel(), '0 users &middot; 0 comments &middot; 0 topics')
+
+    def test_one_of_each_takes_the_singular(self):
+        writer = User.objects.create_user(username='donne', password='zxc123')
+        post = writer.post_set.create(title='Holy Sonnets', body='Death, be not proud.')
+        post.comments.create(author=writer, body='And yet.')
+
+        self.assertEqual(self.panel(), '1 user &middot; 1 comment &middot; 1 topic')
+
+    def test_the_three_counts_follow_the_data(self):
+        writer = User.objects.create_user(username='donne', password='zxc123')
+        herbert = User.objects.create_user(username='herbert', password='zxc123')
+        first = writer.post_set.create(title='Holy Sonnets', body='Death, be not proud.')
+        writer.post_set.create(title='The Canonization', body='For whom have we loved?')
+        first.comments.create(author=writer, body='And yet.')
+        first.comments.create(author=herbert, body='Still.')
+
+        self.assertEqual(self.panel(), '2 users &middot; 2 comments &middot; 2 topics')
+
+    def test_a_new_reply_moves_the_number_immediately(self):
+        writer = User.objects.create_user(username='donne', password='zxc123')
+        post = writer.post_set.create(title='Holy Sonnets', body='Death, be not proud.')
+
+        self.assertEqual(self.panel(), '1 user &middot; 0 comments &middot; 1 topic')
+        post.comments.create(author=writer, body='And yet.')
+        self.assertEqual(self.panel(), '1 user &middot; 1 comment &middot; 1 topic')
+
+    def test_the_panel_sits_above_the_credit_on_every_page(self):
+        writer = User.objects.create_user(username='donne', password='zxc123')
+        post = writer.post_set.create(title='Holy Sonnets', body='Death, be not proud.')
+        self.client.force_login(writer)
+
+        pages = ['/', reverse('post_detail', args=[post.pk]), reverse('user_detail', args=['donne']),
+                 reverse('profile'), reverse('signup'), '/post/9999/']
+        for url in pages:
+            with self.subTest(url=url):
+                source = ' '.join(self.client.get(url).content.decode().split())
+
+                self.assertEqual(self.panel(url), '1 user &middot; 0 comments &middot; 1 topic')
+                self.assertLess(source.index('class="stats"'), source.index('Ivan Deus'))
 
 
 class StorageShapeTests(AvatarTestCase):

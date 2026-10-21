@@ -26,6 +26,8 @@ There is no Bootstrap, no DRF, no Celery. Supports Neon Postgres 18 or SQLite (f
   and carries the visitor back to the index two seconds later.
 - **A page per member** — every avatar on the board links to `/user/<name>/`, which shows the
   picture at its full 100×100. The e-mail address on that page is visible to staff only.
+- **Footer counts** — a small panel above the credit line on every page, holding three numbers:
+  members, replies, and topics. A topic is a post here.
 
 ## Requirements
 
@@ -135,6 +137,18 @@ would show a stack trace on exactly the machine most likely to be running this r
 still **carries status 404**: the redirect is a courtesy to the person reading the page, not a lie to
 the crawler, the monitoring check, or `curl`.
 
+### The three footer numbers
+
+Every page closes with a small bordered panel above the credit line: `5 users · 8 comments ·
+20 topics`. **A topic is a post** — this board has no separate thread or category model — so the
+three figures are members, replies, and topics.
+
+`board/context_processors.py:board_stats` supplies them, registered under
+`TEMPLATES → OPTIONS → context_processors`. That is how all eight board views and the login page get
+the same footer without each of them passing three counts, and without the next view added forgetting
+to. They are counted on every request rather than cached: three indexed `COUNT`s over tables this
+small are cheaper than a cache that can report a member who has since left.
+
 ## Quick start
 
 ```bash
@@ -213,6 +227,7 @@ the profiles section is a window rather than a door.
 │   ├── forms.py                      # PostForm, CommentForm, RegistrationForm, ProfileForm
 │   ├── models.py                     # Post, Comment, Profile
 │   ├── signals.py                    # every new user gets a profile row
+│   ├── context_processors.py         # the footer's three counts, on every page
 │   ├── views.py                      # list, detail, member, create, update, delete, signup, profile
 │   ├── admin.py                      # posts, comments, and read-only profiles
 │   ├── management/commands/seed_board.py
@@ -220,10 +235,10 @@ the profiles section is a window rather than a door.
 │   ├── tests.py                      # the avatar rules, end to end
 │   ├── static/avatars/               # four committed presets + uploads/ (gitignored)
 │   └── templates/
-│       ├── base.html                 # header, nav, inline CSS
+│       ├── base.html                 # header, nav, footer, inline CSS
 │       ├── board/                    # post_list, post_detail, post_form, post_confirm_delete,
 │       │                             #   post_missing, profile, user_detail
-│       ├── partials/                 # avatar_picker.html
+│       ├── partials/                 # avatar_picker.html, stats.html
 │       └── registration/             # login.html, signup.html
 ├── config/
 │   ├── settings.py                   # SQLite or Neon Postgres (via DATABASE_URL), AVATARS_ROOT

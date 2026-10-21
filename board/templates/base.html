@@ -26,6 +26,7 @@
     .messages { list-style: none; padding: 0; margin: 0 0 1rem; }
     .messages li { border: 1px solid rgba(128,128,128,.4); border-radius: .5rem; padding: .5rem .75rem; font-size: .9rem; }
     footer { margin-top: 2.5rem; padding-top: .75rem; border-top: 1px solid rgba(128,128,128,.4); font-size: .8rem; opacity: .7; text-align: center; }
+    .stats { width: fit-content; margin: 0 auto .75rem; border: 1px solid rgba(128,128,128,.4); border-radius: .5rem; padding: .4rem .75rem; font-size: .85rem; }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
@@ -53,6 +54,9 @@
 
   {% block content %}{% endblock %}
 
-  <footer>Designed and developed by <a href="https://github.com/IvanDeus" target="_blank">Ivan Deus</a></footer>
+  <footer>
+    {% include 'partials/stats.html' %}
+    Designed and developed by <a href="https://github.com/IvanDeus" target="_blank">Ivan Deus</a>
+  </footer>
 </body>
 </html>
