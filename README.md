@@ -64,36 +64,8 @@ If you need CLI/agent access on such a host later, skip browser login and use an
 #### Deploying the schema to Neon
 
 The schema is applied with Django's standard migrations — there is no separate schema file to
-push. Against the `DATABASE_URL` in `.env.local`:
-
-```bash
-# 1. apply all migrations to Neon (creates the 12 tables: auth_*, board_*, django_*)
-python manage.py migrate
-
-# 2. confirm Django is talking to Postgres, not SQLite
-python manage.py shell -c "
-from django.db import connection
-print('vendor:', connection.vendor)
-with connection.cursor() as c:
-    c.execute(\"select count(*) from information_schema.tables where table_schema='public'\")
-    print('tables in Neon:', c.fetchone()[0])
-"
-
-# 3. seed a real superuser (the createsuperuser wizard enforces strong passwords)
-python manage.py createsuperuser
-```
-
-Notes:
-
-- Re-run `python manage.py migrate` after every model change and new migration — Neon does not
-  apply them automatically.
-- Migrations are **per branch**: each Neon branch has its own database copy. Point
-  `DATABASE_URL` at the branch you want to change (production by default here).
-- Use the pooled (`-pooler`) endpoint for app traffic; it accepts the same migrations.
-- If you deploy with the `config/settings_prod.py` overlay, add `--settings=config.settings_prod`
-  to both commands.
-- Roll-forward only: `board/0001_initial` and the stock auth/sessions/admin migrations are the
-  whole schema. A fresh empty branch migrates cleanly in one step.
+push. The ordered pass from an empty project to a running board is
+[Deploying to Neon](#deploying-to-neon).
 
 ### Avatars and uploads
 
@@ -134,7 +106,8 @@ python manage.py seed_board
 python manage.py runserver 0.0.0.0:7111
 ```
 
-Then open <http://127.0.0.1:7111/>.
+Then open <http://127.0.0.1:7111/>. Without `DATABASE_URL` this all lands in `db.sqlite3`; for the
+path from an empty Neon project to a live board, see [Deploying to Neon](#deploying-to-neon).
 
 > `seed_board` sets passwords directly, so Django's built-in validators never see them. The plain
 > `manage.py createsuperuser` wizard would reject these passwords as too short and too common —
@@ -227,13 +200,119 @@ Everything lives in `config/settings.py`. The parts worth knowing about:
 - `AVATARS_ROOT` — the folder holding the four presets and receiving uploads, `BASE_DIR / 'board' / 'static' / 'avatars'`. Stored values stay relative to it, so moving it needs no migration.
 - `LOGIN_URL` / `LOGIN_REDIRECT_URL` / `LOGOUT_REDIRECT_URL` — auth flow lands back on the index.
 
+## Deploying to Neon
+
+Neon holds the database; the Django process runs wherever you put it, and that half is
+[Running in production](#running-in-production). Two things are worth settling first:
+
+- **`neon deploy` does not publish the app.** It applies `neon.ts` — the declared services and the
+  branch policy — to a branch, then pulls that branch's env variables into a local `.env`. The
+  name is about the branch, not the site.
+- **The CLI signs in through a browser callback on `127.0.0.1`**, which never arrives on a
+  headless server: `neon status` and `neon projects list` sit there printing an auth URL until
+  they time out. Run the CLI somewhere a browser can open that URL, or pass `--api-key "$KEY"`
+  (a key from your Neon account's API keys) / export `NEON_API_KEY`. Every command below assumes
+  the key.
+
+### 1. Link the project, apply the policy
+
+Create the project in the console (<https://console.neon.tech>) and note the organization ID
+(`org-…`) and the project ID (`green-boat-82574724` and friends). From the repository root:
+
+```bash
+npm install                                                     # @neon/config, @neon/env
+neon init -y --services postgres --org-id <org> --project-id <project>
+neon deploy -y                                                  # apply neon.ts to the branch
+```
+
+`neon init` writes `neon.ts` plus a gitignored `.neon/` context file that pins the project and
+branch, so the commands after it need no IDs. `neon deploy` ends in an env pull by default
+(`--no-env-pull` to skip), writing the branch's `DATABASE_URL` into `.env`. Check which endpoint
+it picked — an app with short-lived connections wants the pooled one, whose host ends in
+`-pooler…`:
+
+```bash
+neon connection-string production --pooled
+```
+
+The committed `neon.ts` gives every new non-default branch a 7-day TTL, so a branch made with
+`neon checkout` is a testing branch that will be deleted — do not put anything on it you intend
+to keep.
+
+### 2. Give the app its two variables
+
+`config/settings.py` loads `.env.local` before `.env`, and `python-dotenv` never overrides a
+variable that is already set, so the pulled `.env` can carry `DATABASE_URL` while `SECRET_KEY`
+stays in your own file. Both are gitignored.
+
+```bash
+cp .env.example .env.local     # set SECRET_KEY; DATABASE_URL may come from the pulled .env
+```
+
+Either way, append `&channel_binding=require` to the console's URI if it is not there — the
+console path is documented under
+[Getting the DB URL from the Neon console](#getting-the-db-url-from-the-neon-console).
+
+If the project has an IP allow list (`neon ip-allow list`, or the network section of the project's
+settings in the console), add the app host's egress address to it now, or every connection from
+that host is refused and the failure looks like a timeout rather than a wrong password.
+
+### 3. Apply the schema
+
+```bash
+pip install -r requirements.txt
+
+python manage.py migrate       # the 13 tables: auth_*, board_*, django_*
+python manage.py check         # same check `npm run build` runs
+```
+
+Then confirm the app is really on Postgres and not on the SQLite fallback — a missing
+`DATABASE_URL` boots happily and writes to `db.sqlite3` in silence:
+
+```bash
+python manage.py shell -c "
+from django.db import connection
+print('vendor:', connection.vendor)
+with connection.cursor() as c:
+    c.execute(\"select count(*) from information_schema.tables where table_schema='public'\")
+    print('tables in Neon:', c.fetchone()[0])
+"
+```
+
+### 4. Put data in it
+
+```bash
+python manage.py seed_board    # four writers, twenty posts, eight replies — testing only
+python manage.py createsuperuser
+```
+
+`seed_board` writes the demo passwords straight into the rows, so the `createsuperuser` validators
+never see them; delete those four accounts before the board is reachable from anywhere
+([Retire the test accounts](#5-retire-the-test-accounts)).
+
+### 5. Keep it in sync afterwards
+
+- Re-run `python manage.py migrate` after every model change — Neon does not apply migrations by
+  itself, and a row written against a stale schema is a broken deploy.
+- Migrations are **per branch**: each branch is its own database. Point `DATABASE_URL` at the
+  branch you mean to change, and remember the pooled endpoint takes migrations exactly as well as
+  the direct one.
+- `neon diff <branch>` shows the schema gap between two branches before you trust a test branch to
+  represent production.
+- Roll-forward only. `board/0001_initial`, `board/0002_profile` and the stock
+  auth/sessions/admin migrations are the whole schema, and a fresh empty branch migrates cleanly
+  in one step.
+- With the `config/settings_prod.py` overlay, add `--settings=config.settings_prod` to `migrate`,
+  `seed_board` and `createsuperuser`.
+
 ## Running in production
 
-The repo is in development posture on purpose: `DEBUG = True`, `ALLOWED_HOSTS = ['*']`, the
-console email backend, and two weak seeded accounts. None of that survives a real host — the
-`SECRET_KEY` already lives outside the code, in `.env.local` (or the process environment).
-Everything below is additive — leave `config/settings.py` for local work and add an overlay
-module that production loads instead.
+The database side is settled by [Deploying to Neon](#deploying-to-neon); this section is the
+process, the TLS, and the files. The repo is in development posture on purpose: `DEBUG = True`,
+`ALLOWED_HOSTS = ['*']`, the console email backend, and four weak seeded accounts. None of that
+survives a real host — the `SECRET_KEY` already lives outside the code, in `.env.local` (or the
+process environment). Everything below is additive — leave `config/settings.py` for local work and
+add an overlay module that production loads instead.
 
 ### 1. Settings overlay
 
@@ -313,6 +392,15 @@ that takes the lock properly:
 sqlite3 /srv/djbb/db.sqlite3 ".backup /backups/djbb-$(date +%F).sqlite3"
 ```
 
+On Neon, restore points and scheduled backups belong to the project, not to this repo, so read
+them as a convenience you have to confirm rather than a guarantee. The copy that is yours is a
+plain dump, and it wants the **direct** endpoint — a pooler multiplexes sessions, and a restore
+needs one session it can hold:
+
+```bash
+pg_dump "$DATABASE_URL_DIRECT" -Fc -f /backups/djbb-$(date +%F).dump
+```
+
 `manage.py dumpdata board auth.User > backup.json` gives you the same data in a form you can
 `loaddata` onto a different engine later. Avatar uploads are files, not rows: back up
 `AVATARS_ROOT / 'uploads'` alongside the database, or a row whose picture is gone renders a broken
@@ -339,7 +427,7 @@ After=network.target
 User=djbb
 WorkingDirectory=/srv/djbb
 Environment=DJANGO_SETTINGS_MODULE=config.settings_prod
-EnvironmentFile=/etc/djbb/env              # SECRET_KEY=...
+EnvironmentFile=/etc/djbb/env              # SECRET_KEY=…, DATABASE_URL=… (0600, service user only)
 ExecStart=/srv/djbb/.venv/bin/uvicorn config.asgi:application --host 127.0.0.1 --port 7111
 Restart=always
 
@@ -380,6 +468,10 @@ configured.
 - [ ] Loopback-bound app server, single worker on SQLite
 - [ ] Seeded accounts deleted; `admin` is not the superuser name
 - [ ] `MAILERS` on a real backend, so `check --deploy` passes
+- [ ] `DATABASE_URL` points at the pooled endpoint, and the host's egress IP is on the project's
+      allow list
+- [ ] `migrate` run against the branch you just deployed, and `vendor: postgres` printed by the
+      check in [Deploying to Neon](#deploying-to-neon)
 - [ ] Backups scheduled and restore-tested
 
 ## Not included
@@ -389,7 +481,7 @@ Deliberately left out to keep the project readable:
 - Tests — `board/tests.py` covers the avatar rules (presets, cropping, the shapes a row may hold,
   what may be deleted); nothing else is tested.
 - Pagination, post editing history, nested replies, markdown, attachments.
-- `requirements.txt`, Docker, CI.
+- Docker, CI.
 - Any rate limiting or spam control on comments.
 
 ---

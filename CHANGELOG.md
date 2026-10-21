@@ -9,6 +9,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`Deploying to Neon` walkthrough in `README.md`** — one ordered pass from an empty project to a
+  running board: link the project and apply the policy, hand the app its two variables, migrate,
+  seed, and keep the schema in sync afterwards. It says plainly that `neon deploy` applies
+  `neon.ts` to a branch and is not app hosting, that the CLI's browser callback never lands on a
+  headless host so an API key carries the auth, that the pulled `.env` can supply `DATABASE_URL`
+  while `.env.local` keeps `SECRET_KEY`, and that a project IP allow list fails as a timeout
+  rather than an auth error. The production section gains a `pg_dump` backup against the direct
+  endpoint and two Neon items in its checklist.
 - **Avatars for every user** — the four 100×100 presets committed to `board/static/avatars` are the
   floor: signup requires a pick, an upload submitted with it wins and is centre-cropped and
   re-encoded by Pillow in its own container, and `/profile/` changes either later. Stored values are
