@@ -17,4 +17,23 @@
     {% endif %}
     <button type="submit">Save</button>
   </form>
+
+  <h3>Change password</h3>
+  <form method="post">
+    {% csrf_token %}
+    <p class="meta">At least 8 characters, and not something a list of common passwords already knows.</p>
+    <p>
+      {{ password_form.old_password }}
+      {% for error in password_form.old_password.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+    </p>
+    <p>
+      {{ password_form.new_password1 }}
+      {% for error in password_form.new_password1.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+    </p>
+    <p>
+      {{ password_form.new_password2 }}
+      {% for error in password_form.new_password2.errors %}<p class="errorlist">{{ error }}</p>{% endfor %}
+    </p>
+    <button type="submit" name="change_password" value="1">Change password</button>
+  </form>
 {% endblock %}

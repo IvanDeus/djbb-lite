@@ -14,10 +14,18 @@ There is no Bootstrap, no DRF, no Celery. Supports Neon Postgres 18 or SQLite (f
 - **Author-only editing** — you can edit or delete your own posts.
 - **Staff override** — staff users can edit or delete *anyone's* post.
 - **Django admin** — posts and comments are registered and manageable at `/admin/`.
+- **Read-only profiles in the admin** — `/admin/board/profile/` lists every writer's name, avatar
+  and e-mail. That section grants view and nothing else: no add, no change, no delete.
 - **Anonymous read access** — browsing needs no account; writing does.
 - **Self-registration** — new users can sign up with username, email, and password (min 6 chars).
 - **Avatars** — every user carries one: pick from four presets, or upload a picture that is
   centre-cropped to 100×100. `/profile/` changes it later.
+- **Change password** — `/profile/` takes a new password too, against the current one, and keeps you
+  signed in across the change instead of bouncing you back to the login form.
+- **A 404 that knows where it is** — a post id with nothing behind it renders the board's own page
+  and carries the visitor back to the index two seconds later.
+- **A page per member** — every avatar on the board links to `/user/<name>/`, which shows the
+  picture at its full 100×100. The e-mail address on that page is visible to staff only.
 
 ## Requirements
 
@@ -91,6 +99,42 @@ preset, a traversal path, or somebody else's picture.
 receiver calls the same function for new ones, so an account never appears without a picture.
 Deleting an account takes its uploaded picture with it, through the same guarded `forget()`.
 
+### Looking at profiles in the admin
+
+`/admin/board/profile/` is a read-only window onto the board's people: avatar, name, e-mail, with a
+search box over the two text fields. `ProfileAdmin` refuses add, change and delete, and Django
+renders what is left in its view mode — no save button, the fields as plain text. The cost of that
+mode is that every field has to be listed in `readonly_fields` to appear at all, since the model
+itself only holds the avatar string; name and e-mail are methods reading through the one-to-one, and
+`get_queryset` follows it with a `select_related` so the list does not fetch each user separately.
+
+Django's own user admin is left alone: accounts, e-mail and passwords are still edited there, and
+this page exists only for looking.
+
+### Changing a password
+
+`/profile/` carries two forms, and the button that came back picks which one is bound:
+`change_password` is the name of the second submit, so a rejected password never paints errors over
+the avatar picker next to it, and saving an avatar never has to know the current password.
+
+The form is Django's own `PasswordChangeForm`, which checks `old_password` against the stored hash
+and runs `AUTH_PASSWORD_VALIDATORS` over the new one — so 8 characters minimum, nothing common,
+nothing entirely numeric. `board/forms.py` only relabels the fields and adds the `field` class. The
+view then calls `update_session_auth_hash`, without which the change would log the visitor out: the
+session row is keyed to the password hash, so a new hash invalidates the cookie that just arrived.
+
+### When a post is gone
+
+`/post/7/` with nothing behind it answers with `board/post_missing.html` — "That topic does not
+exist, or it has been deleted" — and a `<meta http-equiv="refresh" content="2;url=/">` in the head
+carries the visitor to the index two seconds later, with a plain link for anyone who wants it sooner.
+
+Two choices are worth knowing about. The view **returns** that page rather than raising `Http404`,
+because with `DEBUG = True` Django swaps any `handler404` for its own technical page, so a raised 404
+would show a stack trace on exactly the machine most likely to be running this repo. And the response
+still **carries status 404**: the redirect is a courtesy to the person reading the page, not a lie to
+the crawler, the monitoring check, or `curl`.
+
 ## Quick start
 
 ```bash
@@ -133,19 +177,20 @@ this instance somewhere reachable from the internet.
 | Method     | Path                     | View             | Notes                              |
 | ---------- | ------------------------ | ---------------- | ---------------------------------- |
 | `GET`      | `/`                      | `post_list`      | Public                             |
-| `GET`      | `/post/<pk>/`            | `post_detail`    | Public; comment form if logged in  |
+| `GET`      | `/post/<pk>/`            | `post_detail`    | Public; comment form if logged in; missing id gets `post_missing.html` |
 | `GET/POST` | `/post/new/`             | `post_create`    | Login required                     |
 | `GET/POST` | `/post/<pk>/edit/`       | `post_update`    | Author or staff                    |
 | `GET/POST` | `/post/<pk>/delete/`     | `post_delete`    | Author or staff                    |
+| `GET`      | `/user/<username>/`      | `user_detail`    | Public; e-mail only for staff      |
 | `GET/POST` | `/login/`                | Django `LoginView` |                                   |
 | `GET/POST` | `/signup/`               | `signup`         | New user registration              |
-| `GET/POST` | `/profile/`              | `profile`        | Login required; avatar picker      |
+| `GET/POST` | `/profile/`              | `profile`        | Login required; avatar and password |
 | `POST`     | `/logout/`               | Django `LogoutView` | POST only, as of Django 5        |
 | `*`        | `/admin/`                | Django admin     | Staff only                         |
 
 ## Permissions model
 
-One helper in `board/views.py` decides everything:
+The rule that decides who may edit a post is one helper in `board/views.py`:
 
 ```python
 def _can_manage(user, post):
@@ -154,6 +199,10 @@ def _can_manage(user, post):
 
 Users who fail the check are redirected to the post rather than shown a 403, so the edit and
 delete URLs do not leak which post IDs exist versus which are simply yours.
+
+Two smaller rules sit beside it: `/user/<name>/` prints the e-mail line only for
+`request.user.is_staff`, and `ProfileAdmin` in `board/admin.py` refuses add, change and delete, so
+the profiles section is a window rather than a door.
 
 ## Project layout
 
@@ -164,15 +213,16 @@ delete URLs do not leak which post IDs exist versus which are simply yours.
 │   ├── forms.py                      # PostForm, CommentForm, RegistrationForm, ProfileForm
 │   ├── models.py                     # Post, Comment, Profile
 │   ├── signals.py                    # every new user gets a profile row
-│   ├── views.py                      # list, detail, create, update, delete, signup, profile
-│   ├── admin.py
+│   ├── views.py                      # list, detail, member, create, update, delete, signup, profile
+│   ├── admin.py                      # posts, comments, and read-only profiles
 │   ├── management/commands/seed_board.py
 │   ├── templatetags/avatars.py       # {{ stored_value|avatar_url }}
 │   ├── tests.py                      # the avatar rules, end to end
 │   ├── static/avatars/               # four committed presets + uploads/ (gitignored)
 │   └── templates/
 │       ├── base.html                 # header, nav, inline CSS
-│       ├── board/                    # post_list, post_detail, post_form, post_confirm_delete, profile
+│       ├── board/                    # post_list, post_detail, post_form, post_confirm_delete,
+│       │                             #   post_missing, profile, user_detail
 │       ├── partials/                 # avatar_picker.html
 │       └── registration/             # login.html, signup.html
 ├── config/

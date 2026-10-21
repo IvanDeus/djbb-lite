@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block title %}No such post{% endblock %}
+
+{% block extra_head %}
+  <meta http-equiv="refresh" content="2;url={% url 'post_list' %}">
+{% endblock %}
+
+{% block content %}
+  <h2>No such post</h2>
+  <p>That topic does not exist, or it has been deleted. Back to the board in a moment…</p>
+  <p><a href="{% url 'post_list' %}">Go to the board now</a></p>
+{% endblock %}

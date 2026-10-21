@@ -9,6 +9,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A page per member** — `/user/<username>/` shows one writer's avatar at its full 100×100 beside
+  their name, and every avatar on the board (post author, comment author, on the index and on a
+  thread) now links to it. The e-mail line on that page renders only for `request.user.is_staff`,
+  so anonymous visitors and fellow writers see a face and a name.
+- **A 404 that speaks board** — `/post/<pk>/` with no post behind it now renders
+  `board/post_missing.html` ("That topic does not exist, or it has been deleted") with a
+  two-second `<meta http-equiv="refresh">` back to the index, plus a link for anyone who wants it
+  sooner. `post_detail` returns the page instead of raising `Http404`, because Django's technical
+  404 page replaces any `handler404` while `DEBUG` is on; the response still carries status 404.
+- **Read-only profiles in the admin** — `/admin/board/profile/` lists every writer's avatar, name
+  and e-mail, searchable, with the one-to-one joined so the list does not fetch users row by row.
+  `ProfileAdmin` refuses add, change and delete, which is what puts Django's change page into its
+  view-only mode: no save button, the fields rendered as text, and every field declared in
+  `readonly_fields` because that is the only way a method column reaches the form at all. Editing
+  accounts stays with Django's own user admin.
+- **Change password on `/profile/`** — Django's `PasswordChangeForm` (current password checked
+  against the stored hash, `AUTH_PASSWORD_VALIDATORS` run over the new one) rendered under the
+  avatar picker. The page now holds two forms and the pressed button decides which is bound, so a
+  rejected password leaves the picker alone and saving an avatar never asks for the old one;
+  `update_session_auth_hash` keeps the visitor signed in through their own change, and the result
+  is announced through `django.contrib.messages`, which `base.html` now renders.
 - **`Deploying to Neon` walkthrough in `README.md`** — one ordered pass from an empty project to a
   running board: link the project and apply the policy, hand the app its two variables, migrate,
   seed, and keep the schema in sync afterwards. It says plainly that `neon deploy` applies

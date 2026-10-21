@@ -10,6 +10,7 @@ from django.urls import reverse
 from PIL import Image
 
 from . import avatars
+from .models import Profile
 
 REJECTED = avatars.AVATAR_REJECTED
 
@@ -198,6 +199,231 @@ class ProfilePageTests(AvatarTestCase):
         response = self.client.get(reverse('profile'))
 
         self.assertRedirects(response, f'{reverse("login")}?next={reverse("profile")}')
+
+
+NEW_PASSWORD = 'gathering-rosebuds'
+
+
+class PasswordChangeTests(AvatarTestCase):
+    OLD_PASSWORD = 'zxc123'
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='user', password=self.OLD_PASSWORD)
+        self.client.force_login(self.user)
+
+    def change(self, follow=False, **overrides):
+        payload = {
+            'change_password': '1',
+            'old_password': self.OLD_PASSWORD,
+            'new_password1': NEW_PASSWORD,
+            'new_password2': NEW_PASSWORD,
+        }
+        return self.client.post(reverse('profile'), {**payload, **overrides}, follow=follow)
+
+    def stored_password_still_works(self):
+        self.user.refresh_from_db()
+        return self.user.check_password(self.OLD_PASSWORD)
+
+    def test_the_page_offers_both_forms_unbound(self):
+        response = self.client.get(reverse('profile'))
+        page = response.content.decode()
+
+        self.assertContains(response, 'name="change_password"')
+        for name in ('old_password', 'new_password1', 'new_password2'):
+            self.assertIn(f'name="{name}"', page)
+        self.assertEqual(response.context['password_form'].errors, {})
+        self.assertEqual(response.context['form'].errors, {})
+
+    def test_the_current_password_has_to_be_right(self):
+        response = self.change(old_password='not-it')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context['password_form'],
+            'old_password',
+            'Your old password was entered incorrectly. Please enter it again.',
+        )
+        self.assertTrue(self.stored_password_still_works())
+        # The avatar form stayed unbound, so the picker still shows what is stored rather than blank.
+        self.assertContains(response, f'value="{self.user.profile.avatar}" checked')
+
+    def test_the_two_new_passwords_have_to_match(self):
+        response = self.change(new_password2='gathering-rosebuds?')
+
+        self.assertFormError(
+            response.context['password_form'], 'new_password2', 'The two password fields didn’t match.'
+        )
+        self.assertTrue(self.stored_password_still_works())
+
+    def test_a_password_the_validators_refuse_is_refused(self):
+        response = self.change(new_password1='12345678', new_password2='12345678')
+
+        self.assertTrue(response.context['password_form'].errors)
+        self.assertTrue(self.stored_password_still_works())
+
+    def test_a_change_is_stored_and_the_session_survives_it(self):
+        response = self.change()
+
+        # Following the redirect only reaches /profile/ at all because update_session_auth_hash
+        # moved the session to the new hash; otherwise this lands on the login page.
+        self.assertRedirects(response, reverse('profile'), target_status_code=200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(NEW_PASSWORD))
+
+    def test_the_board_says_the_change_worked(self):
+        self.assertContains(self.change(follow=True), 'Password changed.')
+
+    def test_the_avatar_is_left_out_of_a_password_change(self):
+        self.user.profile.set_avatar('fem-a1.png', self.image())
+        stored = self.user.profile.avatar
+
+        self.change()
+
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.avatar, stored)
+        self.assertTrue((self.root / stored).exists())
+
+    def test_saving_the_avatar_leaves_the_password_alone(self):
+        self.client.post(reverse('profile'), {'avatar': 'male-b2.png'})
+
+        self.assertTrue(self.stored_password_still_works())
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.avatar, 'male-b2.png')
+
+
+class ProfileAdminTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.owner = User.objects.create_superuser(username='overseer', email='overseer@example.com', password='thorn-apples-9')
+        self.writer = User.objects.create_user(username='donne', email='donne@example.com', password='zxc123')
+        self.profile = self.writer.profile
+        self.client.force_login(self.owner)
+
+    def test_the_list_shows_name_avatar_and_email_for_every_writer(self):
+        response = self.client.get(reverse('admin:board_profile_changelist'))
+
+        self.assertContains(response, 'donne')
+        self.assertContains(response, 'donne@example.com')
+        self.assertContains(response, f'src="/static/avatars/{self.profile.avatar}"')
+
+    def test_the_detail_page_shows_a_profile_without_offering_to_edit_it(self):
+        response = self.client.get(reverse('admin:board_profile_change', args=[self.profile.pk]))
+
+        self.assertContains(response, 'donne@example.com')
+        self.assertContains(response, f'src="/static/avatars/{self.profile.avatar}"')
+        self.assertContains(response, 'class="readonly"')
+        self.assertNotContains(response, 'name="_save"')
+
+    def test_no_route_through_this_admin_writes_anything(self):
+        for name, args, payload in (
+            ('board_profile_add', [], None),
+            ('board_profile_delete', [self.profile.pk], None),
+        ):
+            with self.subTest(route=name):
+                self.assertEqual(self.client.get(reverse(f'admin:{name}', args=args)).status_code, 403)
+
+        forged = self.client.post(
+            reverse('admin:board_profile_change', args=[self.profile.pk]), {'email': 'forged@example.com'}
+        )
+        bulk = self.client.post(
+            reverse('admin:board_profile_changelist'),
+            {'action': 'delete_selected', 'select_across': '1', '_selected_action': [self.profile.pk]},
+        )
+
+        self.assertEqual(forged.status_code, 403)
+        self.assertTrue(Profile.objects.filter(pk=self.profile.pk).exists())
+        self.writer.refresh_from_db()
+        self.assertEqual(self.writer.email, 'donne@example.com')
+
+    def test_a_staff_user_without_the_view_permission_is_turned_away(self):
+        User.objects.create_user(username='intern', password='thorn-apples-9', is_staff=True)
+        self.client.force_login(User.objects.get(username='intern'))
+
+        self.assertEqual(self.client.get(reverse('admin:board_profile_changelist')).status_code, 403)
+        self.assertNotContains(self.client.get(reverse('admin:index')), '/admin/board/profile/')
+
+    def test_anonymous_never_reaches_it(self):
+        self.client.logout()
+
+        response = self.client.get(reverse('admin:board_profile_changelist'))
+
+        self.assertRedirects(response, f'/admin/login/?next={reverse("admin:board_profile_changelist")}')
+
+
+class MissingPostTests(TestCase):
+    def test_a_missing_id_answers_in_the_boards_own_voice(self):
+        response = self.client.get('/post/1/')
+
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, 'No such post', status_code=404)
+        self.assertContains(response, 'That topic does not exist, or it has been deleted.', status_code=404)
+
+    def test_the_page_hands_the_visitor_back_to_the_board_after_two_seconds(self):
+        response = self.client.get('/post/1/')
+
+        self.assertContains(response, '<meta http-equiv="refresh" content="2;url=/">', html=True, status_code=404)
+        self.assertContains(response, 'href="/"', status_code=404)
+
+    def test_a_post_deleted_since_the_link_was_made_takes_the_same_route(self):
+        author = User.objects.create_user(username='marvell', password='zxc123')
+        post = author.post_set.create(title='To His Coy Mistress', body='Had we but world enough.')
+        url = reverse('post_detail', args=[post.pk])
+
+        post.delete()
+
+        self.assertContains(self.client.get(url), 'No such post', status_code=404)
+
+    def test_an_id_too_large_for_the_column_counts_as_missing(self):
+        self.assertContains(self.client.get('/post/99999999999999999999/'), 'No such post', status_code=404)
+
+    def test_a_post_that_does_exist_still_renders(self):
+        author = User.objects.create_user(username='donne', password='zxc123')
+        post = author.post_set.create(title='The Annunciation', body='As wise at love thou wentest.')
+
+        response = self.client.get(reverse('post_detail', args=[post.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'The Annunciation')
+
+
+class MemberPageTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.writer = User.objects.create_user(username='donne', email='donne@example.com', password='zxc123')
+        self.url = reverse('user_detail', args=['donne'])
+        self.avatar = f'src="/static/avatars/{self.writer.profile.avatar}"'
+
+    def test_anyone_can_see_the_face_and_the_name(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<h2>donne</h2>')
+        self.assertContains(response, self.avatar)
+        self.assertContains(response, 'width="100" height="100"')
+
+    def test_the_address_is_not_for_public_eyes(self):
+        self.assertNotContains(self.client.get(self.url), 'donne@example.com')
+
+        self.client.force_login(User.objects.create_user(username='marvell', password='zxc123'))
+        self.assertNotContains(self.client.get(self.url), 'donne@example.com')
+
+    def test_staff_sees_the_address_too(self):
+        self.client.force_login(User.objects.create_user(username='overseer', password='zxc123', is_staff=True))
+
+        self.assertContains(self.client.get(self.url), 'donne@example.com')
+
+    def test_every_avatar_on_the_board_links_here(self):
+        post = self.writer.post_set.create(title='The Canonization', body='For whom have we loved?')
+        post.comments.create(author=self.writer, body='Let it be.')
+        link = f'href="{self.url}"'
+
+        for url in (reverse('post_list'), reverse('post_detail', args=[post.pk])):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(url), link)
+
+    def test_a_name_that_is_not_on_the_board_is_not_found(self):
+        self.assertEqual(self.client.get('/user/herbert-never-wrote/').status_code, 404)
 
 
 class StorageShapeTests(AvatarTestCase):

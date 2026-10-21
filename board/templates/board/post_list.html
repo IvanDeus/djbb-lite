@@ -4,7 +4,7 @@
   {% for post in posts %}
     <article class="post">
       <h2><a href="{% url 'post_detail' post.pk %}">{{ post.title }}</a></h2>
-      <p class="meta"><img class="avatar" src="{{ post.author.profile.avatar_url }}" alt="" width="24" height="24">{{ post.author.username }} &middot; {{ post.created_at|date:"Y-m-d H:i" }} &middot; {{ post.comments.count }} comment{{ post.comments.count|pluralize }}</p>
+      <p class="meta"><a href="{% url 'user_detail' post.author.username %}"><img class="avatar" src="{{ post.author.profile.avatar_url }}" alt="" width="24" height="24">{{ post.author.username }}</a> &middot; {{ post.created_at|date:"Y-m-d H:i" }} &middot; {{ post.comments.count }} comment{{ post.comments.count|pluralize }}</p>
       <p class="body">{{ post.body|truncatechars:240 }}</p>
     </article>
   {% empty %}

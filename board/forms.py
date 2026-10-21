@@ -1,4 +1,5 @@
 from django import forms
+from django.contrib.auth.forms import PasswordChangeForm as AuthPasswordChangeForm
 from django.contrib.auth.models import User
 
 from . import avatars
@@ -93,3 +94,20 @@ class ProfileForm(forms.Form):
 
     avatar = avatar_preset_field(required=False)
     avatar_file = AvatarFileField()
+
+
+class PasswordChangeForm(AuthPasswordChangeForm):
+    """Django's form, which already runs the validators in AUTH_PASSWORD_VALIDATORS over the new
+    password and compares it against the stored hash for `old_password`."""
+
+    LABELS = {
+        'old_password': 'Current password',
+        'new_password1': 'New password',
+        'new_password2': 'Type the new password again',
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name, label in self.LABELS.items():
+            self.fields[name].label = label
+            self.fields[name].widget.attrs.update({'class': 'field', 'placeholder': label})
