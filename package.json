@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "build": "../venv/bin/python manage.py check",
+    "start": "../venv/bin/python manage.py runserver 0.0.0.0:7111"
+  },
+  "dependencies": {
+    "@neon/config": "^1.9.3",
+    "@neon/env": "^1.6.4"
+  }
+}

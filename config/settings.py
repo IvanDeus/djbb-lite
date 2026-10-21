@@ -10,22 +10,58 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
+
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+try:
+    from dotenv import load_dotenv
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+    for _env_name in ('.env.local', '.env'):
+        _env_path = BASE_DIR / _env_name
+        if _env_path.exists():
+            load_dotenv(_env_path)
+except ImportError:
+    pass
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure--2179tc-6g3rd4b359z=ht53jmfc6klg0l$!xqszv8iulq*4#6'
+SECRET_KEY = os.environ["SECRET_KEY"]
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = ['*']
+
+# Database: PostgreSQL (Neon) when DATABASE_URL is set, SQLite otherwise.
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+# Parse DATABASE_URL if provided (PostgreSQL connection string format)
+import urllib.parse
+
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    parsed = urllib.parse.urlparse(database_url)
+
+    # Query params (sslmode, channel_binding, ...) pass through to psycopg2.
+    options = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': parsed.path[1:],  # Remove leading slash
+        'USER': urllib.parse.unquote(parsed.username or ''),
+        'PASSWORD': urllib.parse.unquote(parsed.password or ''),
+        'HOST': parsed.hostname,
+        'PORT': str(parsed.port or 5432),
+        'OPTIONS': options,
+    }
 
 
 # Application definition
@@ -68,17 +104,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
-
-
-# Database
-# https://docs.djangoproject.com/en/6.1/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
 
 
 # Password validation

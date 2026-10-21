@@ -3,8 +3,7 @@
 A deliberately small bulletin board built with Django — read it as a working reference for
 models, class-less function views, `ModelForm`s, and session auth, with nothing extra in the way.
 
-There is no Bootstrap, no DRF, no Celery, no migrations beyond the initial one. SQLite and
-Django's own auth are the whole stack.
+There is no Bootstrap, no DRF, no Celery, no migrations beyond the initial one. Supports Neon Postgres 18 or SQLite (fallback).
 
 ![Python](https://img.shields.io/badge/python-3.12-blue) ![Django](https://img.shields.io/badge/django-6.1-green)
 
@@ -24,13 +23,83 @@ Django's own auth are the whole stack.
 - Django 6.1
 
 ```bash
-pip install "django>=6.1"
+pip install "django>=6.1" "psycopg2-binary>=2.9.9" "python-dotenv>=1.0"
 ```
+
+### Environment variables
+
+Create `.env.local` in the project root (copy `.env.example` and fill it in):
+
+```bash
+SECRET_KEY=<generate: python -c "from django.core.management.utils import get_random_secret_key as k; print(k())">
+DATABASE_URL=postgresql://user:password@host:5432/neondb?sslmode=require&channel_binding=require
+```
+
+`config/settings.py` loads `.env.local` / `.env` via `python-dotenv`. `SECRET_KEY` is required
+and no longer lives in the settings file. `DATABASE_URL` is optional — omit it and the app
+falls back to SQLite (`db.sqlite3`); the URL's query params (`sslmode`, `channel_binding`, …)
+pass through to `psycopg2` as connection `OPTIONS`. `.env.*` files are gitignored — secrets
+never enter the repo.
+
+#### Getting the DB URL from the Neon console
+
+The Neon CLI signs in through a browser OAuth callback on `127.0.0.1`, which never arrives on
+a headless server / VDS — `neon login` just times out there. Fetch the connection string from
+the web console instead:
+
+1. Sign in at <https://console.neon.tech>.
+2. Open your **project** (e.g. `green-boat-82574724`) → the **Connection Details** panel on the
+   project dashboard — this is the "Connect" flow.
+3. Pick the **branch** (production) and copy the **pooled** connection string (the endpoint
+   ending in `-pooler…` — right choice for serverless/app hosting; use the direct one only if
+   you manage your own connection pooling).
+4. Paste it into `.env.local` as `DATABASE_URL=`. The console URI already carries
+   `?sslmode=require`; append `&channel_binding=require` for SCRAM channel binding.
+
+If you need CLI/agent access on such a host later, skip browser login and use an API key
+(`neon projects list --api-key "$KEY"` or `NEON_API_KEY` in the environment) instead.
+
+#### Deploying the schema to Neon
+
+The schema is applied with Django's standard migrations — there is no separate schema file to
+push. Against the `DATABASE_URL` in `.env.local`:
+
+```bash
+# 1. apply all migrations to Neon (creates the 12 tables: auth_*, board_*, django_*)
+python manage.py migrate
+
+# 2. confirm Django is talking to Postgres, not SQLite
+python manage.py shell -c "
+from django.db import connection
+print('vendor:', connection.vendor)
+with connection.cursor() as c:
+    c.execute(\"select count(*) from information_schema.tables where table_schema='public'\")
+    print('tables in Neon:', c.fetchone()[0])
+"
+
+# 3. seed a real superuser (the createsuperuser wizard enforces strong passwords)
+python manage.py createsuperuser
+```
+
+Notes:
+
+- Re-run `python manage.py migrate` after every model change and new migration — Neon does not
+  apply them automatically.
+- Migrations are **per branch**: each Neon branch has its own database copy. Point
+  `DATABASE_URL` at the branch you want to change (production by default here).
+- Use the pooled (`-pooler`) endpoint for app traffic; it accepts the same migrations.
+- If you deploy with the `config/settings_prod.py` overlay, add `--settings=config.settings_prod`
+  to both commands.
+- Roll-forward only: `board/0001_initial` and the stock auth/sessions/admin migrations are the
+  whole schema. A fresh empty branch migrates cleanly in one step.
 
 ## Quick start
 
 ```bash
-# from the repository root
+# from the repository root — create .env.local first (SECRET_KEY required)
+cp .env.example .env.local   # then set SECRET_KEY, and DATABASE_URL from the Neon console
+                             # (see "Getting the DB URL from the Neon console" above)
+
 python manage.py migrate
 
 # create the two test accounts (see table below)
@@ -99,11 +168,15 @@ delete URLs do not leak which post IDs exist versus which are simply yours.
 │       ├── board/                    # post_list, post_detail, post_form, post_confirm_delete
 │       └── registration/             # login.html, signup.html
 ├── config/
-│   ├── settings.py                   # SQLite, board app, login redirects
-│   └── urls.py
-├── db.sqlite3
+│   ├── settings.py                   # SQLite or Neon Postgres (via DATABASE_URL)
+│   ├── urls.py
+│   ├── wsgi.py
+│   └── asgi.py
+├── db.sqlite3                        # SQLite fallback (gitignored if DATABASE_URL set)
 └── manage.py
 ```
+
+Database backend configured by `DATABASE_URL` environment variable: PostgreSQL if present, SQLite otherwise.
 
 Both models are three fields plus a timestamp; `Comment` has a `related_name='comments'` so
 templates iterate `post.comments.all` directly.
@@ -112,27 +185,26 @@ templates iterate `post.comments.all` directly.
 
 Everything lives in `config/settings.py`. The parts worth knowing about:
 
-- `DATABASES` — SQLite file at `BASE_DIR / 'db.sqlite3'`. Delete the file for a clean slate.
+- `SECRET_KEY` — read from the environment (`config/settings.py` does `os.environ["SECRET_KEY"]`); supply it via `.env.local` or the process environment.
+- `DATABASES` — PostgreSQL if `DATABASE_URL` is set (Neon.tech format), otherwise SQLite at `BASE_DIR / 'db.sqlite3'`. Delete the SQLite file for a clean slate or unset `DATABASE_URL` to fall back.
 - `DEBUG = True` and `ALLOWED_HOSTS = ['*']` — development posture, bound to all interfaces.
 - `LOGIN_URL` / `LOGIN_REDIRECT_URL` / `LOGOUT_REDIRECT_URL` — auth flow lands back on the index.
 
 ## Running in production
 
-The repo is in development posture on purpose: `DEBUG = True`, `ALLOWED_HOSTS = ['*']`, a
-`SECRET_KEY` committed to the file, the console email backend, and two weak seeded accounts.
-None of that survives a real host. Everything below is additive — leave `config/settings.py`
-for local work and add an overlay module that production loads instead.
+The repo is in development posture on purpose: `DEBUG = True`, `ALLOWED_HOSTS = ['*']`, the
+console email backend, and two weak seeded accounts. None of that survives a real host — the
+`SECRET_KEY` already lives outside the code, in `.env.local` (or the process environment).
+Everything below is additive — leave `config/settings.py` for local work and add an overlay
+module that production loads instead.
 
 ### 1. Settings overlay
 
 ```python
 # config/settings_prod.py
-import os
-
-from .settings import *  # noqa: F403  (BASE_DIR comes in with the star-import)
+from .settings import *  # noqa: F403  (BASE_DIR and SECRET_KEY come in with the star-import)
 
 DEBUG = False
-SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]   # never a literal in a file
 ALLOWED_HOSTS = ["board.example.com"]          # exact hosts, no wildcard
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
@@ -143,7 +215,9 @@ SECURE_HSTS_SECONDS = 60 * 60 * 24 * 15        # raise it only once TLS is prove
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # TLS ends at the proxy
 ```
 
-The key in `config/settings.py` is public the moment this repo is, so generate a fresh one:
+`SECRET_KEY` is read from the environment by `config/settings.py`, so production just exports
+it (a systemd `EnvironmentFile` or the host's `.env.local`). Treat any key that ever sat in
+this repo as public and rotate it — generate a fresh one:
 
 ```bash
 python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"
@@ -221,7 +295,7 @@ After=network.target
 User=djbb
 WorkingDirectory=/srv/djbb
 Environment=DJANGO_SETTINGS_MODULE=config.settings_prod
-EnvironmentFile=/etc/djbb/env              # DJANGO_SECRET_KEY=...
+EnvironmentFile=/etc/djbb/env              # SECRET_KEY=...
 ExecStart=/srv/djbb/.venv/bin/uvicorn config.asgi:application --host 127.0.0.1 --port 7111
 Restart=always
 
@@ -256,7 +330,7 @@ configured.
 ### Production checklist
 
 - [ ] `DJANGO_SETTINGS_MODULE=config.settings_prod`, and `DEBUG = False` is actually in effect
-- [ ] Fresh `SECRET_KEY` from the environment, not from `config/settings.py`
+- [ ] Fresh `SECRET_KEY` in the environment (the previously committed key is burned — rotate it)
 - [ ] Concrete `ALLOWED_HOSTS`
 - [ ] HTTPS only, with `SECURE_PROXY_SSL_HEADER` matching what the proxy sends
 - [ ] Loopback-bound app server, single worker on SQLite

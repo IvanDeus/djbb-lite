@@ -51,3 +51,5 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+.neon
+node_modules/
