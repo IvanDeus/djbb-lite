@@ -9,6 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Footer on every page** — "Designed and developed by Ivan Deus" with a link to
+  `https://github.com/IvanDeus`, rendered in `base.html` below the content block.
 - **Signup view** — new user registration at `/signup/` with username, email (no confirmation needed), and password fields (min 6 chars). Auto-log in after successful registration. `RegistrationForm` validates uniqueness of usernames.
 - **`SECRET_KEY` moved to the environment** — `config/settings.py` now reads
   `os.environ["SECRET_KEY"]`; the literal is gone from the file. A fresh key lives in the
