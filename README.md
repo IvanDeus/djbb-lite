@@ -322,7 +322,7 @@ Everything lives in `config/settings.py`. The parts worth knowing about:
 
 - `SECRET_KEY` — read from the environment (`config/settings.py` does `os.environ["SECRET_KEY"]`); supply it via `.env.local` or the process environment.
 - `DATABASES` — PostgreSQL if `DATABASE_URL` is set (Neon.tech format), otherwise SQLite at `BASE_DIR / 'db.sqlite3'`. Delete the SQLite file for a clean slate or unset `DATABASE_URL` to fall back.
-- `DEBUG = True` and `ALLOWED_HOSTS = ['*']` — development posture, bound to all interfaces.
+- `DEBUG = True` and `ALLOWED_HOSTS = ['*']` — development posture, bound to all interfaces. In production, update `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` to reflect your public URL.
 - `AVATARS_ROOT` — the folder holding the four presets and receiving uploads, `BASE_DIR / 'board' / 'static' / 'avatars'`. Stored values stay relative to it, so moving it needs no migration.
 - `LOGIN_URL` / `LOGIN_REDIRECT_URL` / `LOGOUT_REDIRECT_URL` — auth flow lands back on the index.
 
@@ -340,7 +340,7 @@ Neon holds the database; the Django process runs wherever you put it, and that h
   (a key from your Neon account's API keys) / export `NEON_API_KEY`. Every command below assumes
   the key.
 
-### 1. Link the project, apply the policy
+### 1a. Link the project, apply the policy
 
 Create the project in the console (<https://console.neon.tech>) and note the organization ID and the project ID. From the repository root:
 
@@ -363,6 +363,21 @@ neon connection-string production --pooled
 The committed `neon.ts` gives every new non-default branch a 7-day TTL, so a branch made with
 `neon checkout` is a testing branch that will be deleted — do not put anything on it you intend
 to keep.
+
+### 1b. Setting up a local PostgreSQL database
+
+If you prefer to run a local PostgreSQL instance instead of using Neon:
+
+1.  **Install PostgreSQL**: Ensure PostgreSQL 16 (or newer) is installed on your system.
+2.  **Create Database**: Create a new database named `djbb_db`.
+3.  **Create User**: Create a database user `djbb_user` with a chosen password.
+4.  **Configure Environment**: Add the connection string to your `.env.local` file:
+    `DATABASE_URL=postgresql://djbb_user:your_password@localhost:5432/djbb_db`
+5.  **Migrate & Seed**: Run the migrations and seed the database:
+    ```bash
+    python manage.py migrate
+    python manage.py seed_board
+    ```
 
 ### 2. Give the app its two variables
 
