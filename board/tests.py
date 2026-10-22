@@ -455,7 +455,7 @@ class MemberListTests(TestCase):
     def test_every_writer_is_listed_with_a_face_a_name_and_a_type(self):
         response = self.client.get(reverse('member_list'))
 
-        self.assertContains(response, '<th>Avatar</th><th>Name</th><th>Type</th>')
+        self.assertContains(response, '<th>Avatar</th><th>Name</th><th>Type</th><th>Last action</th><th></th>')
         self.assertContains(response, '<td><a href="/user/donne/">donne</a></td>')
         self.assertContains(response, f'src="{self.writer.profile.avatar_url}" alt="" width="48" height="48"')
         self.assertContains(response, '<td>member</td>')
@@ -474,6 +474,15 @@ class MemberListTests(TestCase):
         User.objects.filter(pk=self.owner.pk).update(date_joined=timezone.now() + timedelta(days=1))
 
         self.assertEqual(self.names(), ['admin', 'donne', 'herbert'])
+
+    def test_a_row_prints_the_activity_that_places_it(self):
+        post = self.writer.post_set.create(title='Holy Sonnets', body='Death, be not proud.')
+        stamp = timezone.localtime(post.created_at).strftime('%Y-%m-%d %H:%M')
+        source = ' '.join(self.client.get(reverse('member_list')).content.decode().split())
+
+        # The printed value is the sort key itself, so the column and the order can never disagree:
+        # donne is placed by this topic and says so in her own row.
+        self.assertIn(f'donne</a></td> <td>member</td> <td>{stamp}</td>', source)
 
     def test_a_writer_is_refused(self):
         self.client.force_login(self.writer)
@@ -501,6 +510,93 @@ class MemberListTests(TestCase):
 
         self.client.logout()
         self.assertNotIn('<a', self.panel())
+
+
+class MemberRoleTests(TestCase):
+    """The one write the roll-call offers: a row's type, flipped by a POST from that row.
+
+    Every case here needs two staff accounts, because the acting admin's own row is the row that must
+    never offer a button - which is also the shape a real operator has to click through.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='admin', password='zxc123', is_staff=True)
+        self.writer = User.objects.create_user(username='donne', password='zxc123')
+        self.other = User.objects.create_user(username='herbert', password='zxc123', is_staff=True)
+        self.client.force_login(self.owner)
+
+    def page(self):
+        return ' '.join(self.client.get(reverse('member_list')).content.decode().split())
+
+    def test_a_member_is_made_an_admin(self):
+        response = self.client.post(reverse('member_role', args=[self.writer.pk]))
+
+        self.assertRedirects(response, reverse('member_list'))
+        self.writer.refresh_from_db()
+        self.assertTrue(self.writer.is_staff)
+
+    def test_an_admin_is_made_a_member(self):
+        self.client.post(reverse('member_role', args=[self.other.pk]))
+
+        self.other.refresh_from_db()
+        self.assertFalse(self.other.is_staff)
+
+    def test_the_board_says_which_type_the_person_became(self):
+        self.assertContains(self.client.post(reverse('member_role', args=[self.writer.pk]), follow=True),
+                            'donne is now an admin.')
+        self.assertContains(self.client.post(reverse('member_role', args=[self.other.pk]), follow=True),
+                            'herbert is now a member.')
+
+    def test_the_toggle_moves_is_staff_and_nothing_else(self):
+        """A board admin is a staff account, never a superuser, and this page cannot make one."""
+        overlord = User.objects.create_superuser(username='overseer', email='overseer@example.com',
+                                                 password='thorn-apples-9')
+        before = (overlord.password, overlord.last_login, overlord.email, overlord.is_superuser)
+
+        self.client.post(reverse('member_role', args=[overlord.pk]))
+
+        overlord.refresh_from_db()
+        self.assertFalse(overlord.is_staff)
+        self.assertEqual(before, (overlord.password, overlord.last_login, overlord.email, overlord.is_superuser))
+
+    def test_every_other_row_offers_the_button_it_needs(self):
+        page = self.page()
+
+        self.assertIn(f'action="{reverse("member_role", args=[self.writer.pk])}"', page)
+        self.assertIn('make admin', page)
+        self.assertIn(f'action="{reverse("member_role", args=[self.other.pk])}"', page)
+        self.assertIn('make member', page)
+
+    def test_the_actors_own_row_offers_no_button(self):
+        self.assertNotIn(f'action="{reverse("member_role", args=[self.owner.pk])}"', self.page())
+
+    def test_a_forged_self_change_is_refused(self):
+        response = self.client.post(reverse('member_role', args=[self.owner.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        self.owner.refresh_from_db()
+        self.assertTrue(self.owner.is_staff)
+
+    def test_a_writer_is_refused(self):
+        self.client.force_login(self.writer)
+
+        self.assertEqual(self.client.post(reverse('member_role', args=[self.other.pk])).status_code, 403)
+        self.other.refresh_from_db()
+        self.assertTrue(self.other.is_staff)
+
+    def test_a_guest_is_asked_to_log_in(self):
+        self.client.logout()
+
+        response = self.client.post(reverse('member_role', args=[self.writer.pk]))
+
+        self.assertRedirects(response, f'{reverse("login")}?next={reverse("member_role", args=[self.writer.pk])}')
+        self.writer.refresh_from_db()
+        self.assertFalse(self.writer.is_staff)
+
+    def test_a_get_changes_nothing(self):
+        self.assertEqual(self.client.get(reverse('member_role', args=[self.writer.pk])).status_code, 405)
+        self.writer.refresh_from_db()
+        self.assertFalse(self.writer.is_staff)
 
 
 class FooterStatsTests(TestCase):

@@ -9,6 +9,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The roll-call prints the value it sorts by, and lets an admin change a type** — `member_list` had
+  always computed `last_activity` and thrown it away; the table now shows it in a `Last action`
+  column, rendered `Y-m-d H:i` like every other timestamp on the board, so the column and the order
+  are one number and cannot drift apart. The same table gained an action column: every row but the
+  visitor's own ends in a `make admin` / `make member` button that posts to
+  `POST /members/<pk>/role/` (`views.member_role`, id-addressed like every other write URL here).
+  `require_POST` sits under `login_required`, so a logged-in GET is a `405` rather than a second way
+  to write; a writer who is not staff gets the same `403` as the page itself, since the quiet
+  redirect the post views use would read as success to a forged request, and a page that lists every
+  account has nothing left to hide. `is_staff` is the only field touched, and
+  `save(update_fields=['is_staff'])` is what makes that true: neither password, nor e-mail, nor
+  `date_joined`, nor `is_superuser` can ride along — a superuser stays something only
+  `/admin/auth/user/` hands out. Self-lockout is designed out rather than warned about: the template
+  draws no button on the acting admin's own row, and a POST naming that pk is a `403`. The surviving
+  row reports itself through the messages framework (`donne is now an admin.`), which `base.html`
+  already rendered.
 - **A members list, sorted by last activity** — `/members/` is one plain table of every writer:
   avatar, name, and type (`admin` or `member`), the most recent activity at the top. `member_list`
   annotates `last_activity` with

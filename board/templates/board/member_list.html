@@ -6,7 +6,7 @@
   <h2>Members</h2>
 
   <table>
-    <tr><th>Avatar</th><th>Name</th><th>Type</th></tr>
+    <tr><th>Avatar</th><th>Name</th><th>Type</th><th>Last action</th><th></th></tr>
     {% for person in people %}
       <tr>
         <td>
@@ -16,6 +16,15 @@
         </td>
         <td><a href="{% url 'user_detail' person.username %}">{{ person.username }}</a></td>
         <td>{{ person.is_staff|yesno:"admin,member" }}</td>
+        <td>{{ person.last_activity|date:"Y-m-d H:i" }}</td>
+        <td>
+          {% if person.pk != user.pk %}
+            <form method="post" action="{% url 'member_role' person.pk %}">
+              {% csrf_token %}
+              <button type="submit">{{ person.is_staff|yesno:"make member,make admin" }}</button>
+            </form>
+          {% endif %}
+        </td>
       </tr>
     {% endfor %}
   </table>

@@ -7,6 +7,7 @@ from django.db.models import DateTimeField, F, Max
 from django.db.models.functions import Coalesce, Greatest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views.decorators.http import require_POST
 
 from . import avatars
 from .forms import CommentForm, PasswordChangeForm, PostForm, ProfileForm, RegistrationForm
@@ -86,6 +87,40 @@ def member_list(request):
     )
 
     return render(request, 'board/member_list.html', {'people': people})
+
+
+@login_required
+@require_POST
+def member_role(request, pk):
+    """Switch one member between `member` and `admin` — the type the roll-call prints.
+
+    `is_staff` is the only thing moved and the only thing written back: a superuser is not a rank the
+    board hands out, and `/admin/auth/user/` stays the place where one is. The refusals are
+    `member_list`'s own split rather than `post_update`'s redirect — that redirect exists to hide
+    which post ids exist, and nothing is hidden on a page that already lists every account, where a
+    quiet bounce back would read as success to a forged request.
+
+    `login_required` sits outermost so a guest is asked to log in whichever verb they used;
+    `require_POST` beneath it makes a logged-in GET a 405 rather than a second way to write.
+    """
+    if not request.user.is_staff:
+        raise PermissionDenied
+
+    person = get_object_or_404(User, pk=pk)
+
+    # The page never puts a button on the acting admin's own row, so a POST naming that row did not
+    # come from the form. Locking everyone out of /members/ is the failure to design out.
+    if person.pk == request.user.pk:
+        raise PermissionDenied
+
+    person.is_staff = not person.is_staff
+    # Narrowed on purpose: neither password nor date_joined nor is_superuser rides along.
+    person.save(update_fields=['is_staff'])
+
+    role = 'an admin' if person.is_staff else 'a member'
+    messages.success(request, f'{person.username} is now {role}.')
+
+    return redirect('member_list')
 
 
 @login_required

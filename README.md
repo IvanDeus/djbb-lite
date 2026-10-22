@@ -24,9 +24,10 @@ There is no Bootstrap, no DRF, no Celery. Supports Neon Postgres 18 or SQLite (f
   and carries the visitor back to the index two seconds later.
 - **A page per member** — every avatar on the board links to `/user/<name>/`, which shows the
   picture at its full 100×100. The e-mail address on that page is visible to staff only.
-- **A members list** — `/members/` is a table of every writer — face, name, and whether they are an
-  admin or a member — with whoever wrote most recently at the top. Staff only, and the users figure
-  in the footer is the only way there.
+- **A members list** — `/members/` is a table of every writer — face, name, whether they are an
+  admin or a member, and when they last did something here — with whoever wrote most recently at the
+  top. Staff only, and the users figure in the footer is the only way there. Every row but the
+  admin's own carries a button that switches that account between the two types.
 - **Footer counts** — a small panel above the credit line on every page, holding three numbers:
   members, replies, and topics. A topic is a post here.
 
@@ -110,12 +111,14 @@ itself only holds the avatar string; name and e-mail are methods reading through
 `get_queryset` follows it with a `select_related` so the list does not fetch each user separately.
 
 Django's own user admin is left alone: accounts, e-mail and passwords are still edited there, and
-this page exists only for looking.
+this page exists only for looking. The one rank the board changes for itself is `is_staff`, and it
+does that from `/members/` rather than from `/admin/`.
 
 ### Who is on the board
 
-`/members/` is the roll-call — one row per writer, holding their face, their name, and whether they
-are an `admin` or a `member` — with whoever did something most recently at the top.
+`/members/` is the roll-call — one row per writer, holding their face, their name, whether they are
+an `admin` or a `member`, and when they last did something here — with whoever did something most
+recently at the top.
 
 The ordering is one annotation:
 
@@ -132,6 +135,11 @@ to `Greatest` on purpose: `Greatest` ignores NULLs and returns the largest value
 folding the signup day in would make every account at least as recent as itself, and a writer whose
 only topic is a year old would never fall below someone who joined last week.
 
+The same annotation is printed in the `Last action` column — it was always computed, only never
+shown — so the column and the order are one value and cannot disagree. It renders with the board's
+one timestamp format, `Y-m-d H:i`, and can never be empty: the join date inside the `Coalesce` is
+NOT NULL.
+
 Staff only, with the two refusals split the way the admin splits them: `login_required` sends a
 guest to `/login/?next=/members/`, and a writer who is not staff gets a `403` from a
 `raise PermissionDenied` in the view. That raise is written out because Django 6's
@@ -141,6 +149,23 @@ logged-in writer to log in again.
 The only link to it is the users figure in the footer panel, and `partials/stats.html` wraps that in
 an `<a>` only when `user.is_staff`. Guests and plain writers see exactly the panel they saw before.
 `base.html` carries `table` and `th, td` rules now, which no page on the board needed until this one.
+
+### Switching a member's type
+
+Every row of that table but the visitor's own ends in a button — `make admin` on a member, `make
+member` on an admin — posting to `POST /members/<pk>/role/`. `member_role` is the board's only write
+to the user table, and `is_staff` the only thing it moves: `save(update_fields=['is_staff'])` means
+neither password, nor e-mail, nor `date_joined`, nor `is_superuser` can ride along. A superuser is
+not a rank the board hands out, and `/admin/auth/user/` stays the place where one is.
+
+The refusals are the two `member_list` itself already makes, not `post_update`'s redirect: that
+redirect exists to hide which post ids exist, and nothing is hidden on a page that already lists every
+account — where a quiet bounce back would read as success to a forged request. `require_POST` sits
+under `login_required`, so a logged-in GET is a `405` rather than a second way to
+write. The row of the admin who is clicking offers no button at all, and a POST naming that pk is a
+third `403`: switching themselves off would end their own right to this page, so the failure is
+designed out rather than warned about. The surviving row gets a message — `donne is now an admin.` —
+through Django's messages framework, which `base.html` already renders.
 
 ### Changing a password
 
@@ -226,6 +251,7 @@ this instance somewhere reachable from the internet.
 | `GET/POST` | `/post/<pk>/delete/`     | `post_delete`    | Author or staff                    |
 | `GET`      | `/user/<username>/`      | `user_detail`    | Public; e-mail only for staff      |
 | `GET`      | `/members/`              | `member_list`    | Staff only; linked from the footer |
+| `POST`     | `/members/<pk>/role/`    | `member_role`    | Staff only; never the admin's own row |
 | `GET/POST` | `/login/`                | Django `LoginView` |                                   |
 | `GET/POST` | `/signup/`               | `signup`         | New user registration              |
 | `GET/POST` | `/profile/`              | `profile`        | Login required; avatar and password |
@@ -248,7 +274,9 @@ Two smaller rules sit beside it: `/user/<name>/` prints the e-mail line only for
 `request.user.is_staff`, and `ProfileAdmin` in `board/admin.py` refuses add, change and delete, so
 the profiles section is a window rather than a door. A third keeps `/members/` behind staff: a guest
 is redirected to the login page, a writer who is not staff is refused with `403`, and the footer
-figure that links there is rendered as a link for staff alone.
+figure that links there is rendered as a link for staff alone. The `POST /members/<pk>/role/` that
+switches a type takes that third rule whole and adds one refusal of its own — the pk of the admin who
+is clicking is a `403` too, because no path from this page may end the right to use it.
 
 ## Project layout
 
@@ -260,7 +288,7 @@ figure that links there is rendered as a link for staff alone.
 │   ├── models.py                     # Post, Comment, Profile
 │   ├── signals.py                    # every new user gets a profile row
 │   ├── context_processors.py         # the footer's three counts, on every page
-│   ├── views.py                      # list, detail, member, members, create, update, delete, signup, profile
+│   ├── views.py                      # list, detail, member, members, role, create, update, delete, signup, profile
 │   ├── admin.py                      # posts, comments, and read-only profiles
 │   ├── management/commands/seed_board.py
 │   ├── templatetags/avatars.py       # {{ stored_value|avatar_url }}
@@ -577,7 +605,8 @@ Deliberately left out to keep the project readable:
 
 - Full test coverage — `board/tests.py` exercises the flows this board has (avatars, posts and
   comments, signup and login, profile editing, password changes, the footer counts, the members
-  list), not every branch of the Django forms and views those pages sit on.
+  list and the type switch on it), not every branch of the Django forms and views those pages sit
+  on.
 - Pagination, post editing history, nested replies, markdown, attachments.
 - Docker, CI.
 - Any rate limiting or spam control on comments.

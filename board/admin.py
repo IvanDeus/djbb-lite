@@ -39,7 +39,8 @@ class ProfileAdmin(admin.ModelAdmin):
 
     View is the only permission this grants: add, change and delete are refused outright, so the
     detail page arrives in Django's read-only mode and every field has to be declared read-only to
-    have anywhere to render at all. Editing accounts stays where it belongs — `/admin/auth/user/`.
+    have anywhere to render at all. Editing accounts stays where it belongs — `/admin/auth/user/`,
+    except for the type, which an admin switches on `/members/`.
     """
 
     list_display = ('avatar_tag', 'name', 'email')
