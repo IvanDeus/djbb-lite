@@ -117,8 +117,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   variable (Neon pooled connection string). `config/settings.py` loads `.env.local` / `.env`
   through `python-dotenv`, parses the URL, and passes query params (`sslmode=require`,
   `channel_binding=require`) through to `psycopg2` as connection `OPTIONS`. `DATABASE_URL` is the only
-  way the app is handed a database — the SQLite fallback this bullet originally described is gone, as
-  `Removed` below records. `neon.ts` + `package.json` added by `neon init`; `npm run build` runs
+  way the app is handed a database. `neon.ts` + `package.json` added by `neon init`; `npm run build` runs
   Django's system check. Verified against a live
   Neon project: `migrate` applied all 12 tables, signup / login / post / comment round-tripped
   over HTTP on `PostgreSQL 18.6`. `README.md` documents pulling the connection string from the
@@ -139,19 +138,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   chosen by accident and no command can start against a database nobody picked. `check` opens no
   connection, which makes `python manage.py check` — the command `npm run build` runs — the cheap proof
   the guard fires. The URL's query params still pass through to `psycopg2` as `OPTIONS`, and a local
-  cluster is now written up beside Neon rather than as a preference: with the fallback gone it is also the
-  only place the test suite may create a database.
-
-### Removed
-
-- **The SQLite fallback** — the `db.sqlite3` default in `config/settings.py`, the file itself, its four
-  ignore patterns, and every prose promise that omitting `DATABASE_URL` still boots. The two roll-call
-  cases that disagreed between engines were the only tests whose result depended on which one answered:
-  SQLite's scalar `MAX(a, b)` propagates a NULL where Postgres' `GREATEST` ignores one, so
-  `member_list`'s `Coalesce(Greatest(Max(post), Max(comment)), date_joined)` fell through to the joining
-  date for a writer who has posts but no replies. On the engine that remains, they pass. The cost is
-  stated where it belongs — README's "Running the tests": `manage.py test` now needs a database this repo
-  does not ship, and §1b is the way to make one.
+  cluster is now written up beside Neon rather than as a preference: it is also the only place the test
+  suite may create a database, since the runner takes host and role from the same `DATABASE_URL`.
 
 ## 0.1.0 - 2026-10-20
 
