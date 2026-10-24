@@ -1,17 +1,20 @@
 # DJBB-lite: Django Bulletin Board
 
 A deliberately small bulletin board built with Django.
-There is no Bootstrap, no DRF, no Celery. Supports Neon Postgres 18 or SQLite (fallback).
+There is no Bootstrap, no DRF, no Celery. Runs on PostgreSQL — Neon or a local cluster — and on
+nothing else.
 
 ![Python](https://img.shields.io/badge/python-3.12-blue) ![Django](https://img.shields.io/badge/django-6.1-green)
 
 ## Features
 
 - **Posts** — title + body, newest first, on the index page.
-- **Comments** — threaded under each post, created by logged-in users.
+- **Comments** — threaded under each post, created by logged-in users, ten to a page with the oldest
+  first.
 - **Author-only editing** — you can edit or delete your own posts.
 - **Staff override** — staff users can edit or delete *anyone's* post.
-- **Django admin** — posts and comments are registered and manageable at `/admin/`.
+- **Django admin** — posts and comments are registered and manageable at `/admin/`. The comment list
+  pages ten replies at a time, in the order the thread prints them.
 - **Read-only profiles in the admin** — `/admin/board/profile/` lists every writer's name, avatar
   and e-mail. That section grants view and nothing else: no add, no change, no delete.
 - **Anonymous read access** — browsing needs no account; writing does.
@@ -35,6 +38,8 @@ There is no Bootstrap, no DRF, no Celery. Supports Neon Postgres 18 or SQLite (f
 
 - Python 3.12+
 - Django 6.1
+- PostgreSQL 16+ — Neon, or a local cluster ([Setting up a local PostgreSQL
+  database](#1b-setting-up-a-local-postgresql-database))
 
 ```bash
 pip install "django>=6.1" "psycopg2-binary>=2.9.9" "python-dotenv>=1.0" "Pillow>=10.0"
@@ -49,11 +54,12 @@ SECRET_KEY=<generate: python -c "from django.core.management.utils import get_ra
 DATABASE_URL=postgresql://user:password@host:5432/neondb?sslmode=require&channel_binding=require
 ```
 
-`config/settings.py` loads `.env.local` / `.env` via `python-dotenv`. `SECRET_KEY` is required
-and no longer lives in the settings file. `DATABASE_URL` is optional — omit it and the app
-falls back to SQLite (`db.sqlite3`); the URL's query params (`sslmode`, `channel_binding`, …)
-pass through to `psycopg2` as connection `OPTIONS`. `.env.*` files are gitignored — secrets
-never enter the repo.
+`config/settings.py` loads `.env.local` / `.env` via `python-dotenv`. Both values are required:
+`SECRET_KEY` is read straight from the environment, and `DATABASE_URL` is what the settings import builds
+its one PostgreSQL connection from — without it, or with it left empty, the import raises
+`ImproperlyConfigured` before any command runs, so nothing ever starts against a database nobody chose.
+The URL's query params (`sslmode`, `channel_binding`, …) pass through to `psycopg2` as connection
+`OPTIONS`. `.env.*` files are gitignored — secrets never enter the repo.
 
 #### Getting the DB URL from the Neon console
 
@@ -70,6 +76,10 @@ the web console instead:
 
 If you need CLI/agent access on such a host later, skip browser login and use an API key
 (`neon projects list --api-key "$KEY"` or `NEON_API_KEY` in the environment) instead.
+
+This is one of the two ways to get a `DATABASE_URL`. The other is a cluster on the same machine, built in
+[Setting up a local PostgreSQL database](#1b-setting-up-a-local-postgresql-database) — the board speaks
+the same SQL either way, and no setting changes between them.
 
 #### Deploying the schema to DB
 
@@ -191,6 +201,29 @@ would show a stack trace on exactly the machine most likely to be running this r
 still **carries status 404**: the redirect is a courtesy to the person reading the page, not a lie to
 the crawler, the monitoring check, or `curl`.
 
+### Ten replies to a page
+
+A thread shows ten comments at a time, oldest first, and `/admin/board/comment/` pages the same way.
+`Comment.PER_PAGE` is the number. The ordering is not written into each query — `Comment.Meta.ordering`
+is `('created_at', 'id')`, so the thread, the staff list and the inline under a post all read one
+definition and cannot disagree about which reply came first. `id` is in it because a comment has no
+`updated_at`: two replies stamped the same instant would otherwise drift across a page boundary between
+one look and the next.
+
+`Paginator(...).get_page(request.GET.get('page'))` is what keeps a hand-typed address honest. Django
+answers a page that does not exist with the last page that does, and one that is not a number with the
+first, so `?page=99` on a three-reply thread shows those three replies rather than an empty list under
+the words "No comments yet." The pager is four ends around one figure — `«` to the first page,
+`‹ previous`, `next ›`, `»` to the last — and whichever of them has nowhere to go prints as a dimmed
+`pager-off` word rather than a link back to the page already on screen. A thread of ten or fewer prints
+no pager at all. A reply redirects to the page that holds it, so its author is not sent back to replies
+they have already read, and the URL keeps the `page` out of it while one page is all there is.
+
+Two lists differ from that hand-built pager, both because they belong to Django rather than to this
+board: the staff changelist gets its paging from `list_per_page` and so renders Django's own markup and
+its own answer to a bad `?p=` — a bounce to the first page with a message — and the comment inline under
+a post cannot be paged at all, since an inline is rendered whole.
+
 ### The three footer numbers
 
 Every page closes with a small bordered panel above the credit line: `5 users · 8 comments ·
@@ -206,9 +239,10 @@ small are cheaper than a cache that can report a member who has since left.
 ## Quick start
 
 ```bash
-# from the repository root — create .env.local first (SECRET_KEY required)
-cp .env.example .env.local   # then set SECRET_KEY, and DATABASE_URL from the Neon console
-                             # (see "Getting the DB URL from the Neon console" above)
+# from the repository root — create .env.local first (both values are required to boot)
+cp .env.example .env.local   # then set SECRET_KEY, and DATABASE_URL to a PostgreSQL connection string
+                             # (see "Getting the DB URL from the Neon console" above, or build a local
+                             # cluster per §1b)
 
 python manage.py migrate
 
@@ -218,13 +252,44 @@ python manage.py seed_board
 python manage.py runserver 0.0.0.0:7111
 ```
 
-Then open <http://127.0.0.1:7111/>. Without `DATABASE_URL` this all lands in `db.sqlite3`; for the
-path from an empty Neon project to a live board, see [Deploying to Neon](#deploying-to-neon).
+Then open <http://127.0.0.1:7111/>. Without a `DATABASE_URL` the first command stops at the settings
+import rather than starting on some other database; for the path from an empty Neon project to a live
+board, see [Deploying to Neon](#deploying-to-neon).
 
 > `seed_board` sets passwords directly, so Django's built-in validators never see them. The plain
 > `manage.py createsuperuser` wizard would reject these passwords as too short and too common —
 > that is expected, not a bug in the project. Running it again is a no-op: existing accounts and
 > post titles are kept.
+
+### Running the tests
+
+`board/tests.py` holds 79 cases over the board's own rules — avatars, posts and comments, signup and
+login, the profile page, password changes, the footer counts, the members list and the type switch on it,
+and the paged replies. They need a database: Django's runner creates a fresh one and applies every
+migration to it before the first test runs.
+
+This repo configures no such database, and there is no second connection string to configure — the
+runner takes host, port and role from the very `DATABASE_URL` the app itself uses. So the suite runs
+against a cluster whose role may create databases, which is the local one
+[§1b](#1b-setting-up-a-local-postgresql-database) builds:
+
+```bash
+DATABASE_URL=postgresql://djbb_user:your_password@127.0.0.1:5432/djbb_db python manage.py test
+```
+
+The exported value wins over `.env.local`, because `python-dotenv` loads without overriding what the
+environment already holds.
+
+What not to do: run `manage.py test` with the Neon URL that `.env.local` carries. The runner would ask
+that server for `CREATE DATABASE test_neondb` on the branch the live board runs on, and the owner role
+reports `rolcreatedb`, so the request is one the database can honour rather than one that fails safely.
+Django 6.1 has no `--collect-only` to list cases without a database; to see them anyway, build the suite —
+importing tests opens no connection:
+
+```bash
+python manage.py shell -c "from django.conf import settings; from django.test.utils import get_runner; \
+print(get_runner(settings)(verbosity=0).build_suite().countTestCases())"
+```
 
 ## Test accounts
 
@@ -245,7 +310,7 @@ this instance somewhere reachable from the internet.
 | Method     | Path                     | View             | Notes                              |
 | ---------- | ------------------------ | ---------------- | ---------------------------------- |
 | `GET`      | `/`                      | `post_list`      | Public                             |
-| `GET`      | `/post/<pk>/`            | `post_detail`    | Public; comment form if logged in; missing id gets `post_missing.html` |
+| `GET`      | `/post/<pk>/`            | `post_detail`    | Public; comment form if logged in; `?page=` takes a page of ten replies; missing id gets `post_missing.html` |
 | `GET/POST` | `/post/new/`             | `post_create`    | Login required                     |
 | `GET/POST` | `/post/<pk>/edit/`       | `post_update`    | Author or staff                    |
 | `GET/POST` | `/post/<pk>/delete/`     | `post_delete`    | Author or staff                    |
@@ -256,7 +321,7 @@ this instance somewhere reachable from the internet.
 | `GET/POST` | `/signup/`               | `signup`         | New user registration              |
 | `GET/POST` | `/profile/`              | `profile`        | Login required; avatar and password |
 | `POST`     | `/logout/`               | Django `LogoutView` | POST only, as of Django 5        |
-| `*`        | `/admin/`                | Django admin     | Staff only                         |
+| `*`        | `/admin/`                | Django admin     | Staff only; `/admin/board/comment/` pages ten replies with `?p=` |
 
 ## Permissions model
 
@@ -293,7 +358,8 @@ is clicking is a `403` too, because no path from this page may end the right to 
 │   ├── management/commands/seed_board.py
 │   ├── templatetags/avatars.py       # {{ stored_value|avatar_url }}
 │   ├── tests.py                      # the board's rules, end to end: avatars, posts, auth,
-│   │                                 #   profiles, passwords, the footer, the members list
+│   │                                 #   profiles, passwords, the footer, the members list,
+│   │                                 #   the paged replies
 │   ├── static/avatars/               # four committed presets + uploads/ (gitignored)
 │   └── templates/
 │       ├── base.html                 # header, nav, footer, inline CSS
@@ -302,26 +368,29 @@ is clicking is a `403` too, because no path from this page may end the right to 
 │       ├── partials/                 # avatar_picker.html, stats.html
 │       └── registration/             # login.html, signup.html
 ├── config/
-│   ├── settings.py                   # SQLite or Neon Postgres (via DATABASE_URL), AVATARS_ROOT
+│   ├── settings.py                   # PostgreSQL only (via DATABASE_URL), AVATARS_ROOT
 │   ├── urls.py
 │   ├── wsgi.py
 │   └── asgi.py
-├── db.sqlite3                        # SQLite fallback (gitignored if DATABASE_URL set)
 └── manage.py
 ```
 
-Database backend configured by `DATABASE_URL` environment variable: PostgreSQL if present, SQLite otherwise.
+There is one database engine: `DATABASE_URL` names the PostgreSQL database the board runs on, and the
+settings import fails rather than guessing at another.
 
-`Post` and `Comment` are three fields plus a timestamp; `Comment` has a `related_name='comments'`
-so templates iterate `post.comments.all` directly. `Profile` is the one-to-one that holds the
-avatar, because Django's `auth.User` cannot take a column without swapping `AUTH_USER_MODEL`.
+`Post` and `Comment` are three fields plus a timestamp; `Comment` has a `related_name='comments'` so
+templates iterate `post.comments.all` directly, a `Meta.ordering` of `('created_at', 'id')` so every list
+of them runs oldest first, and a `PER_PAGE` of 10 that is the size those lists are cut at. `Profile` is
+the one-to-one that holds the avatar, because Django's `auth.User` cannot take a column without swapping
+`AUTH_USER_MODEL`.
 
 ## Configuration
 
 Everything lives in `config/settings.py`. The parts worth knowing about:
 
 - `SECRET_KEY` — read from the environment (`config/settings.py` does `os.environ["SECRET_KEY"]`); supply it via `.env.local` or the process environment.
-- `DATABASES` — PostgreSQL if `DATABASE_URL` is set (Neon.tech format), otherwise SQLite at `BASE_DIR / 'db.sqlite3'`. Delete the SQLite file for a clean slate or unset `DATABASE_URL` to fall back.
+- `DATABASES` — one PostgreSQL connection, built from `DATABASE_URL` at import. Either endpoint format works: the pooled URI copied from the Neon console, or a local cluster ([§1b](#1b-setting-up-a-local-postgresql-database)). A missing or empty `DATABASE_URL` raises `ImproperlyConfigured` where the settings are imported, so no command — `check`, `migrate`, `runserver`, the WSGI entry — can start against a database nobody picked. The URL's query params pass through to `psycopg2` as `OPTIONS`.
+- The test database is not configured, because Django takes its host from this same connection. Point `DATABASE_URL` at a cluster your role may create databases on to run the suite — see [Running the tests](#running-the-tests).
 - `DEBUG = True` and `ALLOWED_HOSTS = ['*']` — development posture, bound to all interfaces. In production, update `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` to reflect your public URL.
 - `AVATARS_ROOT` — the folder holding the four presets and receiving uploads, `BASE_DIR / 'board' / 'static' / 'avatars'`. Stored values stay relative to it, so moving it needs no migration.
 - `LOGIN_URL` / `LOGIN_REDIRECT_URL` / `LOGOUT_REDIRECT_URL` — auth flow lands back on the index.
@@ -366,14 +435,42 @@ to keep.
 
 ### 1b. Setting up a local PostgreSQL database
 
-If you prefer to run a local PostgreSQL instance instead of using Neon:
+Neon is not a requirement. PostgreSQL is the only engine either way, so a cluster on the same machine is a
+straight stand-in for every command in this project — and it is the one place the test suite can run,
+since that needs a role allowed to create a database of its own
+([Running the tests](#running-the-tests)).
 
-1.  **Install PostgreSQL**: Ensure PostgreSQL 16 (or newer) is installed on your system.
-2.  **Create Database**: Create a new database named `djbb_db`.
-3.  **Create User**: Create a database user `djbb_user` with a chosen password.
-4.  **Configure Environment**: Add the connection string to your `.env.local` file:
-    `DATABASE_URL=postgresql://djbb_user:your_password@localhost:5432/djbb_db`
-5.  **Migrate & Seed**: Run the migrations and seed the database:
+1.  **Install PostgreSQL** — 16 or newer is what the board is written against:
+
+    ```bash
+    apt install postgresql
+    ```
+
+2.  **Create the role and the database**, as the `postgres` superuser — `sudo -u postgres psql`:
+
+    ```sql
+    CREATE ROLE djbb_user LOGIN PASSWORD 'your_password';
+    CREATE DATABASE djbb_db OWNER djbb_user;
+    ```
+
+    The role owns the database it is handed to `python manage.py migrate`, because the migrations create,
+    alter and drop tables. A `GRANT` over somebody else's schema is where a run stops halfway, having
+    left the earlier tables behind.
+
+3.  **Point `.env.local` at it**:
+
+    ```bash
+    DATABASE_URL=postgresql://djbb_user:your_password@127.0.0.1:5432/djbb_db
+    ```
+
+    Django asks for no TLS unless the URL says so, so a cluster running `ssl = off` is reached by exactly
+    this string — nothing like `?sslmode=disable` is needed, because there is no default to disable.
+    Against a cluster that does speak TLS, append `?sslmode=require&channel_binding=require`, and note
+    that the role's password must be stored as `scram-sha-256`, which has been `password_encryption`'s
+    default since PostgreSQL 14.
+
+4.  **Migrate & seed**:
+
     ```bash
     python manage.py migrate
     python manage.py seed_board
@@ -406,8 +503,10 @@ python manage.py migrate       # tables: auth_*, board_*, django_*
 python manage.py check         # same check `npm run build` runs
 ```
 
-Then confirm the app is really on Postgres and not on the SQLite fallback — a missing
-`DATABASE_URL` boots happily and writes to `db.sqlite3` in silence:
+Then confirm the app reached the branch you meant. There is no second engine to fall back to any more —
+a missing `DATABASE_URL` stops at the settings import, and `python manage.py check`, which is what
+`npm run build` runs, is the cheap proof of that, since `check` never opens a connection — but a
+*_wrong* Postgres string still boots and answers happily against somebody else's data:
 
 ```bash
 python manage.py shell -c "
@@ -495,10 +594,11 @@ export DJANGO_SETTINGS_MODULE=config.settings_prod
 uvicorn config.asgi:application --host 127.0.0.1 --port 7111
 ```
 
-Bind to loopback and let the proxy be the only thing reachable. Stay on **one worker** while
-SQLite is the database: separate processes contend for the write lock and surface as
-`OperationalError: database is locked`. Scale by moving `DATABASES` to Postgres, not by adding
-workers.
+Bind to loopback and let the proxy be the only thing reachable. How many workers to run is no longer a
+correctness question: Postgres serves concurrent writers, so the `OperationalError: database is locked`
+that once capped this board at a single process has nothing left to cap. The limit that remains is the
+one the database sets — Neon's pooled endpoint hands every worker connections out of the same pool, so
+plan the pool size rather than the process count.
 
 ### 3. Static files
 
@@ -523,28 +623,20 @@ them. Never run `collectstatic --clear` against it — that is how you delete wh
 
 ### 4. Back up the database
 
-`db.sqlite3` is gitignored, so deploys never carry content — the board is only as durable as
-the file on that machine. Keep it out of any nginx docroot, make sure the service user can
-write to it and to its directory (SQLite journals next to the file), and back up with a tool
-that takes the lock properly:
-
-```bash
-sqlite3 /srv/djbb/db.sqlite3 ".backup /backups/djbb-$(date +%F).sqlite3"
-```
-
-On Neon, restore points and scheduled backups belong to the project, not to this repo, so read
-them as a convenience you have to confirm rather than a guarantee. The copy that is yours is a
-plain dump, and it wants the **direct** endpoint — a pooler multiplexes sessions, and a restore
-needs one session it can hold:
+The database is not a file on this machine, so there is nothing beside the app to keep out of a docroot
+or to hand write permission to. The durable artefact is a dump. On Neon, restore points and scheduled
+backups belong to the project rather than to this repo, so read them as a convenience you have to confirm
+rather than a guarantee. The copy that is yours is a plain dump, and it wants the **direct** endpoint — a
+pooler multiplexes sessions, and a dump holds one open for its whole run:
 
 ```bash
 pg_dump "$DATABASE_URL_DIRECT" -Fc -f /backups/djbb-$(date +%F).dump
 ```
 
 `manage.py dumpdata board auth.User > backup.json` gives you the same data in a form you can
-`loaddata` onto a different engine later. Avatar uploads are files, not rows: back up
-`AVATARS_ROOT / 'uploads'` alongside the database, or a row whose picture is gone renders a broken
-image.
+`loaddata` onto another PostgreSQL later — a fresh branch, or the local cluster of §1b. Avatar uploads
+are files, not rows: back up `AVATARS_ROOT / 'uploads'` alongside the database, or a row whose picture is
+gone renders a broken image.
 
 ### 5. Retire the test accounts
 
@@ -605,7 +697,7 @@ configured.
 - [ ] Fresh `SECRET_KEY` in the environment (the previously committed key is burned — rotate it)
 - [ ] Concrete `ALLOWED_HOSTS`
 - [ ] HTTPS only, with `SECURE_PROXY_SSL_HEADER` matching what the proxy sends
-- [ ] Loopback-bound app server, single worker on SQLite
+- [ ] Loopback-bound app server
 - [ ] Seeded accounts deleted; `admin` is not the superuser name
 - [ ] `MAILERS` on a real backend, so `check --deploy` passes
 - [ ] `DATABASE_URL` points at the pooled endpoint, and the host's egress IP is on the project's
@@ -620,9 +712,11 @@ Deliberately left out to keep the project readable:
 
 - Full test coverage — `board/tests.py` exercises the flows this board has (avatars, posts and
   comments, signup and login, profile editing, password changes, the footer counts, the members
-  list and the type switch on it), not every branch of the Django forms and views those pages sit
-  on.
-- Pagination, post editing history, nested replies, markdown, attachments.
+  list and the type switch on it, the paged replies), not every branch of the Django forms and views
+  those pages sit on.
+- Paged topic lists — `/` still prints every post, and the admin's comment inline prints every reply of
+  a post; only the comment lists themselves are cut into pages.
+- Post editing history, nested replies, markdown, attachments.
 - Docker, CI.
 - Any rate limiting or spam control on comments.
 

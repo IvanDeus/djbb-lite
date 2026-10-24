@@ -9,6 +9,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Ten replies to a page** — every comment list is now a page of ten, oldest first: the thread at
+  `/post/<pk>/` and the staff list at `/admin/board/comment/`. `Comment.PER_PAGE` holds the number and
+  `Comment.Meta.ordering` is `('created_at', 'id')`, which is the one definition the thread, the staff
+  list and the inline under a post read, so none of them can disagree about which reply came first —
+  and `id` belongs there because a comment has no `updated_at`, so a pair stamped in the same instant
+  would otherwise move across a page boundary between two looks. The ordering is the only thing
+  `0003_alter_comment_options` settles: no column changes and no row is written. Paging goes through
+  `Paginator(...).get_page()`, which answers a page that does not exist with the last page that does,
+  and one that is not a number with the first, so `?page=99` on a three-reply thread cannot reply with
+  an empty list under the words "No comments yet." The pager itself is markup here rather than a
+  package — `«` to the first page, `‹ previous`, `next ›`, `»` to the last, and whichever end has
+  nowhere to go prints as a dimmed `pager-off` word instead of a link back to the page already on
+  screen — with the two rules `base.html`'s single inline `<style>` needed to lay it out. A reply
+  redirects to the page that holds it, so its author is not sent back to what they had already read,
+  and `page` stays out of the URL while one page is all there is. Two lists keep Django's own shape:
+  the staff changelist pages through `list_per_page`, so it brings its own markup and its own
+  bounce-to-the-first-page for a wild `?p=`, and the comment inline under a post cannot be paged at
+  all, because an inline is rendered whole.
 - **The roll-call prints the value it sorts by, and lets an admin change a type** — `member_list` had
   always computed `last_activity` and thrown it away; the table now shows it in a `Last action`
   column, rendered `Y-m-d H:i` like every other timestamp on the board, so the column and the order
@@ -98,9 +116,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Neon Postgres 18 support** — the database is selected by the `DATABASE_URL` environment
   variable (Neon pooled connection string). `config/settings.py` loads `.env.local` / `.env`
   through `python-dotenv`, parses the URL, and passes query params (`sslmode=require`,
-  `channel_binding=require`) through to `psycopg2` as connection `OPTIONS`. Without
-  `DATABASE_URL` the app falls back to SQLite (`db.sqlite3`). `neon.ts` + `package.json`
-  added by `neon init`; `npm run build` runs Django's system check. Verified against a live
+  `channel_binding=require`) through to `psycopg2` as connection `OPTIONS`. `DATABASE_URL` is the only
+  way the app is handed a database — the SQLite fallback this bullet originally described is gone, as
+  `Removed` below records. `neon.ts` + `package.json` added by `neon init`; `npm run build` runs
+  Django's system check. Verified against a live
   Neon project: `migrate` applied all 12 tables, signup / login / post / comment round-tripped
   over HTTP on `PostgreSQL 18.6`. `README.md` documents pulling the connection string from the
   Neon console (project → Connection Details) — the CLI's browser OAuth callback never lands
@@ -108,10 +127,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   A "Deploying the schema to Neon" section covers `migrate` + vendor/table verification +
   `createsuperuser`, and the per-branch, re-run-after-every-model-change caveats.
 - **Production run guide** — a "Running in production" section in `README.md` covering the
-  `config/settings_prod.py` overlay pattern, uvicorn against `config.asgi:application`, static
-  files, SQLite backups, retiring the seeded accounts, systemd, nginx, and `check --deploy`.
-- **`.gitignore`** — Python caches, virtualenvs, the SQLite database and its journals, local
-  settings, environment files and keys, coverage and packaging output, editor and OS droppings.
+  `config/settings_prod.py` overlay pattern, uvicorn against `config.asgi:application`, static files,
+  `pg_dump` backups, retiring the seeded accounts, systemd, nginx, and `check --deploy`.
+- **`.gitignore`** — Python caches, virtualenvs, local settings, environment files and keys, coverage
+  and packaging output, editor and OS droppings.
+
+### Changed
+
+- **PostgreSQL is the only database** — `config/settings.py` builds one connection from `DATABASE_URL`
+  and raises `ImproperlyConfigured` when that variable is missing or left empty, so the engine is never
+  chosen by accident and no command can start against a database nobody picked. `check` opens no
+  connection, which makes `python manage.py check` — the command `npm run build` runs — the cheap proof
+  the guard fires. The URL's query params still pass through to `psycopg2` as `OPTIONS`, and a local
+  cluster is now written up beside Neon rather than as a preference: with the fallback gone it is also the
+  only place the test suite may create a database.
+
+### Removed
+
+- **The SQLite fallback** — the `db.sqlite3` default in `config/settings.py`, the file itself, its four
+  ignore patterns, and every prose promise that omitting `DATABASE_URL` still boots. The two roll-call
+  cases that disagreed between engines were the only tests whose result depended on which one answered:
+  SQLite's scalar `MAX(a, b)` propagates a NULL where Postgres' `GREATEST` ignores one, so
+  `member_list`'s `Coalesce(Greatest(Max(post), Max(comment)), date_joined)` fell through to the joining
+  date for a writer who has posts but no replies. On the engine that remains, they pass. The cost is
+  stated where it belongs — README's "Running the tests": `manage.py test` now needs a database this repo
+  does not ship, and §1b is the way to make one.
 
 ## 0.1.0 - 2026-10-20
 
