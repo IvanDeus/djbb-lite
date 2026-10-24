@@ -16,6 +16,12 @@ author_with_avatar.short_description = 'author'
 
 
 class CommentInline(admin.TabularInline):
+    """The replies under a post, in the order the thread prints them.
+
+    Django renders an inline whole - there is no page-by-page form of it - so this is the one comment
+    list on the board that still answers all of a post's replies at once.
+    """
+
     model = Comment
     extra = 0
 
@@ -31,6 +37,10 @@ class PostAdmin(admin.ModelAdmin):
 class CommentAdmin(admin.ModelAdmin):
     list_display = ('post', author_with_avatar, 'created_at')
     list_select_related = ('author__profile',)
+    # Ten rows, oldest first. The order is not written here: it falls through to Comment.Meta, which
+    # is the same ordering the thread page and the inline under a post read, so no two comment lists
+    # can disagree about which reply came first.
+    list_per_page = Comment.PER_PAGE
 
 
 @admin.register(Profile)

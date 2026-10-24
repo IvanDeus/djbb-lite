@@ -13,7 +13,7 @@ from django.utils import timezone
 from PIL import Image
 
 from . import avatars
-from .models import Profile
+from .models import Comment, Profile
 
 REJECTED = avatars.AVATAR_REJECTED
 
@@ -397,6 +397,124 @@ class MissingPostTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'The Annunciation')
+
+
+class CommentPagingTests(TestCase):
+    """Ten replies to a page, oldest first, and the four ends that reach the rest of the thread.
+
+    Every reply is stamped after its own INSERT, because `auto_now_add` takes the instant the row was
+    made and nothing else can move it. The stamps are spaced by hand so that the order under test is
+    the order written here, not the speed this machine ran the saves at.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.writer = User.objects.create_user(username='donne', password='zxc123')
+        # The reply form is only drawn for a member, and the POST writes their id onto the row.
+        self.client.force_login(self.writer)
+        self.post = self.writer.post_set.create(title='The Good-Morrow', body='I wonder, by my troth.')
+        self.url = reverse('post_detail', args=[self.post.pk])
+
+    def replies(self, count):
+        base = timezone.now() - timedelta(hours=2)
+        made = [self.post.comments.create(author=self.writer, body=f'reply {n:02d}') for n in range(1, count + 1)]
+
+        for offset, comment in enumerate(made, start=1):
+            Comment.objects.filter(pk=comment.pk).update(created_at=base + timedelta(minutes=offset))
+
+        return made
+
+    def bodies(self, url):
+        """The reply bodies in the order their rows came out, skipping the post's own body, which the
+        article above the thread prints in the same markup."""
+        source = ' '.join(self.client.get(url).content.decode().split())
+
+        return [body for body in re.findall(r'<p class="body">([^<]+)</p>', source) if body.startswith('reply ')]
+
+    def test_a_thread_prints_ten_replies_and_the_oldest_come_first(self):
+        self.replies(12)
+        response = self.client.get(self.url)
+
+        self.assertEqual(len(response.context['comments']), 10)
+        self.assertEqual(response.context['comments'].paginator.count, 12)
+        self.assertEqual(self.bodies(self.url), [f'reply {n:02d}' for n in range(1, 11)])
+        self.assertNotContains(response, 'reply 12')
+
+    def test_the_second_page_holds_the_remainder(self):
+        self.replies(12)
+        second = f'{self.url}?page=2'
+
+        self.assertEqual(self.bodies(second), ['reply 11', 'reply 12'])
+        self.assertContains(self.client.get(second), 'page 2 of 2')
+
+    def test_the_pager_links_are_paths_and_not_addresses(self):
+        self.replies(12)
+
+        self.assertContains(self.client.get(self.url), f'href="{self.url}?page=2"')
+
+    def test_a_thread_of_ten_prints_no_pager(self):
+        self.replies(10)
+        response = self.client.get(self.url)
+
+        self.assertEqual(len(response.context['comments']), 10)
+        self.assertNotContains(response, 'class="pager"')
+
+    def test_a_reply_lands_on_the_page_that_holds_it(self):
+        self.replies(10)
+        response = self.client.post(self.url, {'body': 'an eleventh voice'})
+
+        self.assertEqual(response['Location'], f'{self.url}?page=2')
+        self.assertContains(self.client.get(f'{self.url}?page=2'), 'an eleventh voice')
+
+    def test_the_first_reply_lands_on_the_plain_thread_url(self):
+        response = self.client.post(self.url, {'body': 'the first voice'})
+
+        self.assertEqual(response['Location'], self.url)
+
+    def test_a_page_past_the_end_shows_the_last_one(self):
+        self.replies(12)
+        response = self.client.get(f'{self.url}?page=99')
+
+        self.assertEqual(response.context['comments'].number, 2)
+        self.assertContains(response, 'reply 12')
+        self.assertNotContains(response, 'No comments yet.')
+
+    def test_a_page_that_is_not_a_number_answers_the_first(self):
+        self.replies(12)
+        response = self.client.get(f'{self.url}?page=anything')
+
+        self.assertEqual(response.context['comments'].number, 1)
+        self.assertContains(response, 'reply 01')
+
+    def test_the_ends_jump_to_the_first_and_the_last_page(self):
+        self.replies(25)
+
+        self.assertContains(self.client.get(self.url), '<span class="pager-off" title="first page">')
+        self.assertContains(self.client.get(self.url), f'<a href="{self.url}?page=3" title="last page">')
+        self.assertContains(
+            self.client.get(f'{self.url}?page=2'), f'<a href="{self.url}?page=1" title="first page">'
+        )
+        self.assertContains(
+            self.client.get(f'{self.url}?page=2'), f'<a href="{self.url}?page=3" title="last page">'
+        )
+        self.assertContains(self.client.get(f'{self.url}?page=3'), '<span class="pager-off" title="last page">')
+
+    def test_the_staff_comment_list_pages_ten_rows_oldest_first(self):
+        overseer = User.objects.create_superuser(username='overseer', password='thorn-apples-9')
+        self.client.force_login(overseer)
+        made = self.replies(11)
+        changelist = reverse('admin:board_comment_changelist')
+
+        response = self.client.get(changelist)
+
+        # This list names a reply by its post, its author and its moment, so the rows are read back
+        # by primary key: the ten oldest ids, in this order, and the newest one held for page 2.
+        self.assertEqual(response.context['cl'].paginator.per_page, 10)
+        self.assertEqual([c.pk for c in response.context['cl'].result_list], [c.pk for c in made[:10]])
+
+        second = self.client.get(f'{changelist}?p=2')
+
+        self.assertEqual([c.pk for c in second.context['cl'].result_list], [made[10].pk])
 
 
 class MemberPageTests(TestCase):

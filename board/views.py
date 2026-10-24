@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate, login, update_session_auth_hash
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db.models import DateTimeField, F, Max
 from django.db.models.functions import Coalesce, Greatest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -11,7 +12,7 @@ from django.views.decorators.http import require_POST
 
 from . import avatars
 from .forms import CommentForm, PasswordChangeForm, PostForm, ProfileForm, RegistrationForm
-from .models import Post
+from .models import Comment, Post
 
 
 def _can_manage(user, post):
@@ -36,15 +37,26 @@ def post_detail(request, pk):
             comment.post = post
             comment.author = request.user
             comment.save()
-            return redirect('post_detail', pk=post.pk)
+            # Land on the page that holds the reply just written, so the writer is not sent back to
+            # what they had already read. `page` stays out of the address while one page is all there
+            # is - a first reply belongs at the plain thread URL.
+            last_page = Paginator(post.comments.all(), Comment.PER_PAGE).num_pages
+            thread = reverse('post_detail', args=[post.pk])
+            return redirect(f'{thread}?page={last_page}' if last_page > 1 else thread)
     else:
         form = CommentForm()
+    # get_page() answers a page that does not exist with the last page that does, so a hand-typed
+    # ?page=99 on a three-reply thread shows those three replies rather than an empty list under the
+    # words "No comments yet."
+    comments = Paginator(post.comments.select_related('author__profile'), Comment.PER_PAGE).get_page(
+        request.GET.get('page')
+    )
     return render(
         request,
         'board/post_detail.html',
         {
             'post': post,
-            'comments': post.comments.select_related('author__profile'),
+            'comments': comments,
             'comment_form': form,
             'can_manage': _can_manage(request.user, post),
         },

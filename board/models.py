@@ -12,10 +12,19 @@ class Post(models.Model):
 
 
 class Comment(models.Model):
+    PER_PAGE = 10
+
     post = models.ForeignKey(Post, related_name='comments', on_delete=models.CASCADE)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     body = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Oldest reply first, and `id` breaks a tie: `created_at` is the only stamp a comment has, so
+        # a pair written in the same instant would otherwise move across a page boundary between two
+        # looks. Every comment list on the board reads this ordering - the thread, the staff list, the
+        # inline under a post - which is the point of putting it here rather than in each query.
+        ordering = ('created_at', 'id')
 
 
 class Profile(models.Model):

@@ -25,6 +25,28 @@
     <p>No comments yet.</p>
   {% endfor %}
 
+  {% if comments.has_other_pages %}
+    <nav class="pager">
+      {% if comments.has_previous %}
+        <a href="{% url 'post_detail' post.pk %}?page=1" title="first page">&laquo;</a>
+        <a href="{% url 'post_detail' post.pk %}?page={{ comments.previous_page_number }}">&lsaquo; previous</a>
+      {% else %}
+        <span class="pager-off" title="first page">&laquo;</span>
+        <span class="pager-off">&lsaquo; previous</span>
+      {% endif %}
+
+      <span>page {{ comments.number }} of {{ comments.paginator.num_pages }}</span>
+
+      {% if comments.has_next %}
+        <a href="{% url 'post_detail' post.pk %}?page={{ comments.next_page_number }}">next &rsaquo;</a>
+        <a href="{% url 'post_detail' post.pk %}?page={{ comments.paginator.num_pages }}" title="last page">&raquo;</a>
+      {% else %}
+        <span class="pager-off">next &rsaquo;</span>
+        <span class="pager-off" title="last page">&raquo;</span>
+      {% endif %}
+    </nav>
+  {% endif %}
+
   {% if user.is_authenticated %}
     <form method="post">
       {% csrf_token %}
