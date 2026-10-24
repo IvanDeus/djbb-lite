@@ -391,7 +391,7 @@ Everything lives in `config/settings.py`. The parts worth knowing about:
 - `SECRET_KEY` — read from the environment (`config/settings.py` does `os.environ["SECRET_KEY"]`); supply it via `.env.local` or the process environment.
 - `DATABASES` — one PostgreSQL connection, built from `DATABASE_URL` at import. Either endpoint format works: the pooled URI copied from the Neon console, or a local cluster ([§1b](#1b-setting-up-a-local-postgresql-database)). A missing or empty `DATABASE_URL` raises `ImproperlyConfigured` where the settings are imported, so no command — `check`, `migrate`, `runserver`, the WSGI entry — can start against a database nobody picked. The URL's query params pass through to `psycopg2` as `OPTIONS`.
 - The test database is not configured, because Django takes its host from this same connection. Point `DATABASE_URL` at a cluster your role may create databases on to run the suite — see [Running the tests](#running-the-tests).
-- `DEBUG = True` and `ALLOWED_HOSTS = ['*']` — development posture, bound to all interfaces. In production, update `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` to reflect your public URL.
+- `DEBUG = True` and `ALLOWED_HOSTS = ['*']` — development posture, bound to all interfaces. In production, update `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` to reflect your public URL (if you get Forbidden (403) CSRF verification failed. Request aborted).
 - `AVATARS_ROOT` — the folder holding the four presets and receiving uploads, `BASE_DIR / 'board' / 'static' / 'avatars'`. Stored values stay relative to it, so moving it needs no migration.
 - `LOGIN_URL` / `LOGIN_REDIRECT_URL` / `LOGOUT_REDIRECT_URL` — auth flow lands back on the index.
 
