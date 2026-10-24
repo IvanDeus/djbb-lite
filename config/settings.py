@@ -11,8 +11,11 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import urllib.parse
 
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,34 +38,31 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-# Database: PostgreSQL (Neon) when DATABASE_URL is set, SQLite otherwise.
+# PostgreSQL is the only engine this project speaks, and the import refuses to guess which database
+# was meant: a missing DATABASE_URL fails here, at boot, rather than quietly writing board rows
+# somewhere nobody is looking at.
+database_url = os.environ.get('DATABASE_URL')
+if not database_url:
+    raise ImproperlyConfigured(
+        'DATABASE_URL is required, and PostgreSQL is the only database this board supports. Set it in '
+        '.env.local (or the process environment) to a connection string from the Neon console, or to a '
+        'local cluster created the way README.md "Setting up a local PostgreSQL database" describes.'
+    )
+
+parsed = urllib.parse.urlparse(database_url)
+
+# Query params (sslmode, channel_binding, ...) pass through to psycopg2.
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
-
-# Parse DATABASE_URL if provided (PostgreSQL connection string format)
-import urllib.parse
-
-database_url = os.environ.get('DATABASE_URL')
-if database_url:
-    parsed = urllib.parse.urlparse(database_url)
-
-    # Query params (sslmode, channel_binding, ...) pass through to psycopg2.
-    options = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
-
-    DATABASES['default'] = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': parsed.path[1:],  # Remove leading slash
         'USER': urllib.parse.unquote(parsed.username or ''),
         'PASSWORD': urllib.parse.unquote(parsed.password or ''),
         'HOST': parsed.hostname,
         'PORT': str(parsed.port or 5432),
-        'OPTIONS': options,
+        'OPTIONS': {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()},
     }
-
+}
 
 # Application definition
 
